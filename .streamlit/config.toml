@@ -1,0 +1,24 @@
+[client]
+showErrorDetails = "none"
+
+[theme]
+primaryColor = "#F63366"
+backgroundColor = "white"
+secondaryBackgroundColor = 'grey'
+codeBackgroundColor ="gray"
+font = "cool-font, fallback-cool-font, sans-serif"
+codeFont = 'monospace'
+baseRadius = "medium"
+
+[theme.sidebar]
+textColor="black"
+
+[runner]
+fastReruns = true
+
+[server]
+runOnSave = false
+enableStaticServing = false
+
+[logger]
+level = "error"
