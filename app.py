@@ -11,17 +11,23 @@ from langchain_groq import ChatGroq
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.runnables.history import RunnableWithMessageHistory
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_community.document_loaders import PyPDFLoader
-from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun
+from langchain_community.document_loaders import PyPDFLoader, WebBaseLoader
+from langchain_community.tools import ArxivQueryRun, WikipediaQueryRun, DuckDuckGoSearchRun
+from langchain.tools.retriever import create_retriever_tool
 from langchain_community.utilities import WikipediaAPIWrapper, ArxivAPIWrapper
+from langchain.agents import initialize_agent, AgentType
+from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
+from langchain.tools import Tool
+# from login import login_page
+
 import os
-from login import login_page
 
 from dotenv import load_dotenv
 load_dotenv()
 
 # Load environment variables
 os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN")
+os.environ["USER_AGENT"] = "GenesisAGI/1.0 (+https://github.com/kenee101/genesis)"
 embeddings=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
 persist_directory = "db"
 
@@ -57,8 +63,11 @@ else:
         api_wrapper_arxiv=ArxivAPIWrapper(top_k_results=1,doc_content_chars_max=250)
         wiki_tool=WikipediaQueryRun(api_wrapper=api_wrapper_wiki)
         arxiv_tool=ArxivQueryRun(api_wrapper=api_wrapper_arxiv)
-        tools=[wiki_tool, arxiv_tool]
+        search=DuckDuckGoSearchRun(name="DuckDuckGo Search", description="Search the web for relevant information.")
 
+
+        # User input for questions
+        user_question=st.text_input("Ask a question about the PDF content")
         uploaded_files=st.file_uploader("Choose a PDF file", type="pdf", accept_multiple_files=True)
 
         # Process uploaded files
@@ -71,8 +80,14 @@ else:
                     file_name=uploaded_file.name
 
                 # Load the PDF
-                loader=PyPDFLoader(tempPDF)
-                docs=loader.load()
+                pdfLoader=PyPDFLoader(tempPDF)
+                webLoader=WebBaseLoader("https://docs.smith.langchain.com/")
+                loaders=[pdfLoader, webLoader]
+                # Load the documents
+                docs=[loader.load() for loader in loaders]
+                # Combine the documents
+                docs=[doc for doc_list in docs for doc in doc_list]
+                # Add the documents to the list
                 documents.extend(docs)
 
             # Split and create embeddings
@@ -80,6 +95,14 @@ else:
             splits=text_splitter.split_documents(documents)
             vectorestore=FAISS.from_documents(documents=splits, embedding=embeddings)
             retriever=vectorestore.as_retriever()
+
+            retriever_tool=create_retriever_tool(
+                retriever=retriever,
+                name="pdf_retriever",
+                description="A tool to retrieve relevant documents from the PDF.",
+            )
+
+
 
             contextualize_q_system_prompt = (
                 """
@@ -142,15 +165,52 @@ else:
                 verbose=True,
             )
 
-            # User input for questions
-            user_question=st.text_input("Ask a question about the PDF content")
+            # Initialize the tools
+            tools = [
+                Tool(
+                    name="PDF Retriever",
+                    func=retriever_tool.run,
+                    description="Retrieve relevant documents from the PDF."
+                ),
+                Tool(
+                    name="Wikipedia Search",
+                    func=wiki_tool.run,
+                    description="Search Wikipedia for relevant information."
+                ),
+                Tool(
+                    name="Arxiv Search",
+                    func=arxiv_tool.run,
+                    description="Search Arxiv for academic papers."
+                ),
+                Tool(
+                    name="HybridRAG",
+                    func=rag_chain.invoke,  # or just my_rag_chain if it's a Runnable
+                    description="Retrieves information from the hybrid RAG system."
+                ),
+                Tool(
+                    name="SearchWeb",
+                    func=search.run,  # or just my_rag_chain if it's a Runnable
+                    description="Retrieves information from the web."
+                )
+            ]
+
+            # Initialize the agent
+            agent = initialize_agent(
+                tools=tools,
+                llm=llm,
+                agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
+                verbose=True,
+                handle_parsing_errors=True
+            )
+
             if user_question:
                 # Get the session history
                 chat_history=get_session_history(session_id)
                 chat_history.add_user_message(user_question)
 
                 # Run the chain
-                response=rag_chain.invoke({"input": user_question}, config={"configurable": {"session_id": session_id}},)
+                st_cb=StreamlitCallbackHandler(st.container(), expand_new_thoughts=True)
+                response=agent.run({"input": user_question}, callbacks=[st_cb],)# config={"configurable": {"session_id": session_id}},)
 
                 # Add the assistant's message to the chat history
                 chat_history.add_ai_message(response["answer"])
