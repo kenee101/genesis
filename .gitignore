@@ -6,3 +6,4 @@ credentials.json
 mistral-7b-instruct-v0.1.Q4_K_M.gguf
 *.ipynb
 .streamlit/secrets.toml
+llama.cpp
