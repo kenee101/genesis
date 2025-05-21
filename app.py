@@ -37,6 +37,7 @@ import uuid
 import os
 import json
 import re
+from datetime import datetime
 
 from databases.postgres.postgres import store_prompt_data, store_employee_data, postgres_conn, close_postgres_connection
 from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query,run_agent_query
@@ -103,21 +104,43 @@ else:
 
     sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
-    #Input Groq API key
     api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
-    # Initialize Ollama
-    model_name = st.sidebar.selectbox(
-        "Select Ollama Model",
-        ["deepseek-r1", "gemma3", "llava", "codellama"],
+    # LLM Selection
+    llm_provider = st.sidebar.selectbox(
+        "Select LLM Provider",
+        ["Groq", "Ollama"],
         index=0
     )
-    
-    if api_key:
-        llm=ChatGroq(groq_api_key=api_key, model_name="Gemma2-9b-It")
-    # llm = Ollama(model=model_name)
-        # session_id=st.text_input("Session ID", value="default_session")
-    # if llm:
+
+    # Initialize LLM based on selection
+    @st.cache_resource(ttl=10)
+    def initialize_llm(provider: str, api_key: str = None, model_name: str = None):
+        if provider == "Groq":
+            if not api_key:
+                st.warning("Please enter your Groq API key to use Groq models.")
+                return None
+            return ChatGroq(groq_api_key=api_key, model_name="Gemma2-9b-It")
+        elif provider == "Ollama":
+            if not model_name:
+                st.warning("Please select an Ollama model.")
+                return None
+            return Ollama(model=model_name)
+        return None
+
+    # Initialize Ollama model selection if Ollama is selected
+    ollama_model = None
+    if llm_provider == "Ollama":
+        ollama_model = st.sidebar.selectbox(
+            "Select Ollama Model",
+            ["deepseek-r1", "gemma3", "llava", "codellama"],
+            index=0
+        )
+
+    # Initialize the LLM
+    llm = initialize_llm(llm_provider, api_key, ollama_model)
+
+    if llm:
         @st.cache_resource(ttl=10)
         def configure_db():
             if db_uri == LOCALDB:
@@ -151,13 +174,17 @@ else:
             st.session_state.store = {}
 
         if "chat_history" not in st.session_state or st.sidebar.button("Clear Chat History"):
-            st.session_state.chat_history = []
-            st.session_state.session_id = '' 
+            st.session_state.chat_history = ChatMessageHistory()
+            st.session_state.session_id = 'default'
             st.session_state.store = {}
 
         if "session_id" not in st.session_state:
-            st.session_state.session_id = 'default' 
-            # str(uuid.uuid4())
+            st.session_state.session_id = 'default'
+
+        def get_session_history(session:str)-> BaseChatMessageHistory:
+            if session not in st.session_state.store:
+                st.session_state.store[session] = ChatMessageHistory()
+            return st.session_state.store[session]
 
         # Use the in-built tool of wikipedia and arxiv
         api_wrapper_wiki=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=250)
@@ -271,10 +298,18 @@ else:
 
             If you're unsure which to use, prefer LLM Chat unless the user explicitly mentions data or the database.
 
-            Given the question and the context, provide a lengthy concise answer.
+            Provide comprehensive, detailed responses that include:
+            1. A clear and thorough explanation of the main concept or answer
+            2. Multiple examples or use cases where applicable
+            3. Step-by-step breakdowns for complex topics
+            4. Related concepts and their connections
+            5. Practical applications and real-world scenarios
+            6. Potential implications or considerations
+            7. Supporting evidence or references when available
+            8. Visual or structural organization (lists, sections, etc.) for better readability
 
-            If you don't know the answer, say "I don't know".
-            Use the context to support your answer.
+            If you don't know the answer, say "I don't know" and explain what information you would need to provide a better response.
+            Use the context to support your answer and provide additional relevant information.
             \n\n
 
             Context: {context} 
@@ -308,7 +343,7 @@ else:
         # Create the conversational RAG chain
         rag_chain = None
         if retrieval_chain is not None:
-            rag_chain=RunnableWithMessageHistory(
+            rag_chain = RunnableWithMessageHistory(
                 retrieval_chain,
                 get_session_history,
                 input_messages_key="input",
@@ -337,7 +372,7 @@ else:
             except Exception as e:
                 return f"Error executing query: {str(e)}"
 
-        # Initialize the tools
+        # Initialize the tools with conversation awareness
         tools = [
             Tool(
                 name="SQL Agent",
@@ -374,77 +409,52 @@ else:
             tools.append(
                 Tool(
                     name="LLM Chat",
-                    func=lambda query: rag_chain.invoke({"input": query}, {'configurable': {'session_id': st.session_state.session_id}}),
+                    func=lambda query: rag_chain.invoke(
+                        {"input": query, "chat_history": st.session_state.chat_history.messages},
+                        {'configurable': {'session_id': st.session_state.session_id}}
+                    ),
                     description="Use this for any general conversation, reasoning, or non-database questions."
                 )
             )
 
-        # Initialize the agent
+        # Initialize the agent with conversation awareness
         agent = initialize_agent(
             tools=tools,
             llm=llm,
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
-            verbose=True,
+            verbose=False,
             handle_parsing_errors=True,
-            max_iterations=2,
+            max_iterations=3,
             early_stopping_method="generate",
             agent_kwargs={
-                "prefix": """You are a helpful AI assistant. You have access to the following tools. Use them in this order of priority:
-1. PDF Retriever (if available) - Use this FIRST for any questions about uploaded PDFs
-2. SQL Agent - Use this for database queries
-3. LLM Chat - Use this for general conversation
-4. Wikipedia/Arxiv - Use these for factual information
-5. Web Search - Use this ONLY as a last resort
+                "prefix": """You are a helpful AI assistant. Use tools in this order:
+1. PDF Retriever - For PDF questions
+2. SQL Agent - For database queries
+3. LLM Chat - For general questions
+4. Wikipedia/Arxiv - For facts
+5. Web Search - Last resort
 
-When using the PDF Retriever:
-- Return the content directly without showing your thought process
-- Format the content in a clear, readable way
-- If the content is a list, present it as a bulleted list
-- If the content has sections, organize it with headers""",
+Format responses with markdown when helpful. Keep answers clear and concise. For general knowledge questions, use LLM Chat directly.""",
                 "suffix": """Begin!
 
 Question: {input}
+Chat History: {chat_history}
 {agent_scratchpad}""",
-                "format_instructions": """Follow this format exactly. Do not include any additional text or notes.
+                "format_instructions": """Format:
+Question: [question]
+Thought: [reasoning]
+Action: [tool]
+Action Input: [input]
+Observation: [result]
+Final Answer: [response]
 
-For PDF content:
-Question: [user's question]
-Thought: I should use the PDF Retriever to find information in the uploaded documents
-Action: PDF Retriever
-Action Input: [user's question]
-Observation: [retrieved information]
-Thought: I will format this information clearly for the user
-Final Answer: [formatted content from the PDF]
-
-For SQL queries:
-Question: [user's question]
-Thought: I need to query the database
-Action: SQL Agent
-Action Input: SELECT [columns] FROM [table] WHERE [conditions] ORDER BY [column] LIMIT [number]
-Observation: [query results]
-Thought: [interpret results]
-Final Answer: [formatted response]
-
-For other questions:
-Question: [user's question]
-Thought: [your reasoning]
-Action: [tool name from {tool_names}]
-Action Input: [input for the tool]
-Observation: [tool's response]
-Thought: [final reasoning]
-Final Answer: [your response]
-
-CRITICAL RULES:
-1. For SQL queries, ALWAYS use the SQL format above
-2. Do not add any text before or after the format
-3. Do not add any explanations or notes
-4. Do not add any formatting or styling
-5. Do not add any tags or markers
-6. Do not repeat the format instructions
-7. Do not add any greetings or closings
-8. Do not use <think> tags or any other formatting tags
-9. For SQL queries, ONLY include the actual SQL statement in Action Input - NO markdown formatting, NO code blocks, NO backticks
-10. SQL queries must be plain text only - no ```sql or any other formatting"""
+Rules:
+1. Use markdown in Final Answer
+2. Keep responses focused
+3. Format SQL as plain text
+4. Use lists/tables when helpful
+5. For general knowledge, use LLM Chat directly
+6. Do not display the question, action, action input, observation, thought in the final answer"""
             }
         )
 
@@ -458,74 +468,200 @@ CRITICAL RULES:
 
         # store_employee_data(data)
 
+        # Add custom CSS for better chat styling
+        st.markdown("""
+        <style>
+            .stChatMessage {
+                border-radius: 1rem;
+                margin-bottom: 1rem;
+                display: flex;
+                flex-direction: row;
+            }
+            .stChatMessage[data-testid="stChatMessage"] {
+                background-color: transparent;
+            }
+            .user-message {
+                background-color: gray;
+                border-radius: 15px 15px 0 15px;
+                padding: 10px;
+                margin: 10px;
+                margin-top: -5px;
+                display: flex;
+                justify-content: flex-end;
+                align-items: center;
+                gap: 1rem;
+            }
+            .assistant-message {
+                # background-color: #f5f5f5;
+                border-radius: 15px 15px 15px 0;
+                padding: 10px;
+                margin: 10px;
+                margin-top: -5px;
+                display: flex;
+                justify-content: flex-start;
+                align-items: center;
+                gap: 1rem;
+            }
+            .message-timestamp {
+                font-size: 0.7rem;
+                color: black;
+                font-weight: bold;
+                font-size: 1rem;
+                white-space: nowrap;
+                flex-shrink: 0;
+            }
+            .user-message-content, .assistant-message-content {
+                # flex: 1;
+                min-width: 0;
+                overflow-wrap: break-word;
+                word-wrap: break-word;
+                word-break: break-word;
+                white-space: pre-wrap;
+            }
+            .typing-indicator {
+                display: flex;
+                align-items: center;
+                gap: 5px;
+                padding: 10px;
+                background-color: #f5f5f5;
+                border-radius: 15px;
+                margin: 5px 0;
+            }
+            .typing-dot {
+                width: 8px;
+                height: 8px;
+                background-color: #666;
+                border-radius: 50%;
+                animation: typing 1s infinite ease-in-out;
+            }
+            @keyframes typing {
+                0%, 100% { transform: translateY(0); }
+                50% { transform: translateY(-5px); }
+            }
+        </style>
+        """, unsafe_allow_html=True)
+
+        # Add timestamp function
+        def get_timestamp():
+            return datetime.now().strftime("%H:%M")
+
+        # Add typing indicator component
+        def show_typing_indicator():
+            with st.chat_message("assistant", avatar="🤖"):
+                st.markdown("""
+                <div class="typing-indicator">
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                    <div class="typing-dot"></div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        # Display chat history with stored timestamps
+        if "chat_history" in st.session_state:
+            chat_history = st.session_state.chat_history
+            if hasattr(chat_history, 'messages'):
+                for message in chat_history.messages:
+                    if message.type == "human":
+                        with st.chat_message("user", avatar="👤"):
+                            st.markdown(f"""
+                            <div class="user-message">
+                                <div class="user-message-content">{message.content}</div>
+                                <div class="message-timestamp">{get_timestamp()}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                    else:
+                        with st.chat_message("assistant", avatar="🤖"):
+                            st.markdown(f"""
+                            <div class="assistant-message">
+                                <div class="message-timestamp">{get_timestamp()}</div>
+                                <div class="assistant-message-content">{message.content}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+
         if user_question:
-            #  Create prompt embedding
-            embedding=embeddings.embed_query(user_question)
+            try:
+                # Create prompt embedding
+                embedding = embeddings.embed_query(user_question)
 
-            # Get the session history
-            st.session_state.chat_history=get_session_history(st.session_state.session_id)
-            st.session_state.chat_history.add_user_message(user_question)
+                # Get the session history
+                st.session_state.chat_history = get_session_history(st.session_state.session_id)
+                
+                # Get current timestamp for user message
+                user_timestamp = get_timestamp()
+                
+                # Display user message on the left with timestamp
+                with st.chat_message("user", avatar="👤"):
+                    st.markdown(f"""
+                    <div class="user-message">
+                        <div class="user-message-content">{user_question}</div>
+                        <div class="message-timestamp">{user_timestamp}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
+                
+                # Add user message to history with timestamp
+                st.session_state.chat_history.add_user_message(user_question)
 
-            # Run the chain
-            st_cb=StreamlitCallbackHandler(st.container(), expand_new_thoughts=True)
-            response=agent.run({"input": user_question}, callbacks=[st_cb],)
-            # response=agent.run({"input": st.session_state.chat_history.messages}, callbacks=[st_cb],)
-            
-            # memory = ConversationBufferMemory(
-            #     memory_key="chat_history",
-            #     return_messages=True
-            # )
-            # # conversation = ConversationChain(llm=llm, memory=memory)
-            # qa = ConversationalRetrievalChain.from_llm(
-            #     llm=llm,
-            #     retriever=retriever,
-            #     memory=memory
-            # )
-            # response = qa.run(user_question)
-            
-            # sql_query = extract_sqlquery(response)
-            # if sql_query:
-            #     # Run the SQL query
-            # cleaned_query = clean_sql_query(sql_query)
-            # result = run_agent_query(cleaned_query, "databases/sqlite/students.db")
-            # st.session_state.chat_history.add_ai_message(result)
-            # st.success(f"Answer: {result}")
-            # store_prompt_data(st.session_state.session_id, user_question, result, embedding, "Gemma2-9b-It")  # embedding must be list
+                # Create a container for the response
+                response_container = st.empty()
+                
+                # Run the chain with proper error handling and chat history
+                with st.spinner('Thinking...'):
+                    try:
+                        st_cb = StreamlitCallbackHandler(response_container, expand_new_thoughts=False)
+                        response = agent.invoke(
+                            {
+                                "input": user_question,
+                                "chat_history": st.session_state.chat_history.messages
+                            },
+                            callbacks=[st_cb],
+                            config={"configurable": {"session_id": st.session_state.session_id}}
+                        )
+                        
+                        # Get current timestamp for AI response
+                        ai_timestamp = get_timestamp()
+                        
+                        # Display AI message on the right with timestamp
+                        with st.chat_message("assistant", avatar="🤖"):
+                            st.markdown(f"""
+                            <div class="assistant-message">
+                                <div class="message-timestamp">{ai_timestamp}</div>
+                                <div class="assistant-message-content">{response.get("output", "I apologize, but I couldn't generate a proper response.")}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                        # Add the assistant's message to the chat history
+                        st.session_state.chat_history.add_ai_message(response.get("output", ""))
+                        
+                    except Exception as e:
+                        error_timestamp = get_timestamp()
+                        error_message = f"An error occurred while processing your request: {str(e)}"
+                        
+                        # Create a container for the error message
+                        error_container = st.empty()
+                        
+                        with st.chat_message("assistant", avatar="🤖"):
+                            st.markdown(f"""
+                            <div class="assistant-message">
+                                <div class="message-timestamp">{error_timestamp}</div>
+                                <div class="assistant-message-content" style="color: #d32f2f;">{error_message}</div>
+                            </div>
+                            """, unsafe_allow_html=True)
+                            
+                            # Add a retry button
+                            if st.button("🔄 Retry", key="retry_button"):
+                                st.session_state.chat_history.messages.pop()  # Remove the error message
+                                st.rerun()  # Rerun the app to retry the request
+                            
+                        st.session_state.chat_history.add_ai_message(error_message)
+                        
+            except Exception as e:
+                st.error(f"An unexpected error occurred: {str(e)}")
+                if st.button("🔄 Refresh", key="refresh_button"):
+                    st.rerun()
+                st.stop()
 
-            # else:
-            # Display the answer
-            with st.chat_message("assistant"):
-                st.write(response)
-            # st.write_stream(f"Answer: {response}")
-
-            # store_prompt_data(st.session_state.session_id, user_question, response, embedding, "Gemma2-9b-It")  # embedding must be list
-
-            
-            # Add the assistant's message to the chat history
-            st.session_state.chat_history.add_ai_message(response)
-        
-            # Store conversation
-            # st.session_state.chat_history.append(("user", user_question))
-            # st.session_state.chat_history.append(("ai", response))
-
-            # Display the chat history
-            # st.write("Chat history:", chat_history.messages)
-
-            # for msg in st.session_state.chat_history.messages:
-            #     st.write(f"{msg.type.capitalize()}: {msg.content}")
-            
-            #  Close the database connection
 
     else:
         st.warning("Please enter your Groq API key to proceed.")
         close_sqlite_connection(sqlite_conn)
         close_postgres_connection(postgres_conn)
-
-# If no tool is needed:
-# Question: [user's question]
-# Thought: [your reasoning]
-# Action: None
-# Action Input: None
-# Observation: No tools needed
-# Thought: [final reasoning]
-# Final Answer: [your response]
