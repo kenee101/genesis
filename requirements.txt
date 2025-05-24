@@ -11,15 +11,15 @@ pymupdf
 bs4
 arxiv
 wikipedia
-chromadb
+# chromadb
 sentence_transformers
 faiss-cpu
 langchain-cli
-langchain_chroma
+# langchain_chroma
 langchain-groq
 langchain-astradb
-langchain-elasticsearch
-langchain-mongodb
+# langchain-elasticsearch
+# langchain-mongodb
 langchain-ollama
 langchain-pinecone
 langchain-postgres

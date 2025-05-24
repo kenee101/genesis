@@ -9,7 +9,7 @@ from langchain_community.utilities.sql_database import SQLDatabase
 from langchain_experimental.sql import SQLDatabaseChain # type: ignore
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain_chroma import Chroma
+# from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
 from langchain_community.llms import Ollama 
 
