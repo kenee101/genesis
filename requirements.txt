@@ -79,3 +79,5 @@ pyttsx3
 redis
 pytesseract
 langchain-redis
+seaborn
+matplotlib

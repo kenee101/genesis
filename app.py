@@ -45,19 +45,7 @@ from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clea
 from dotenv import load_dotenv
 load_dotenv()
 
-# def extract_sqlquery(response_json):
-#     try:
-#         parsed = json.loads(response_json.replace("'", "\""))  # convert single quotes to double for valid JSON
-#         result_text = parsed.get("result", "")
-
-#         # extract the actual SQL query after "SQLQuery:"
-#         match = re.search(r"SQLQuery:\s*(.*)", result_text)
-#         if match:
-#             return match.group(1).strip()
-#     except Exception as e:
-#         print(f"Error parsing SQL from response: {e}")
-    
-#     return None
+from enhanced_parser import process_agent_response, display_enhanced_response, get_enhanced_response
 
 # Set page config
 st.set_page_config(page_title="Genesis", page_icon="🤖")
@@ -72,18 +60,6 @@ POSTGRESQL="USE_POSTGRESQL"
 db_uri=""
 
 options = ['Use SQLite 3 Database - Students.db', 'Connect to PostgreSQL Database - GENESIS']
-selected_option = st.sidebar.radio("Select Database", options)
-
-if options.index(selected_option) == 1:
-    db_uri=POSTGRESQL
-    postgresql_host = st.sidebar.text_input("PostgreSQL Host", value="localhost")
-    postgresql_port = st.sidebar.text_input("PostgreSQL Port", value="5432")
-    postgresql_user = st.sidebar.text_input("PostgreSQL User", value="postgres")
-    postgresql_password = st.sidebar.text_input("PostgreSQL Password", type="password", value="secret")
-    postgresql_db = st.sidebar.text_input("PostgreSQL Database", value="genesis")
-    postgres_link = f"postgresql+psycopg2://{postgresql_user}:{postgresql_password}@{postgresql_host}:{postgresql_port}/{postgresql_db}"
-else:
-    db_uri=LOCALDB
 
 # Check if the user is authenticated
 if not st.experimental_user.is_logged_in:
@@ -98,6 +74,19 @@ else:
     st.button("Log out", on_click=st.logout)
     st.write(f"Hello, {st.experimental_user.name}!")
     st.title("Welcome to GENESIS")
+    
+    selected_option = st.sidebar.radio("Select Database", options)
+
+    if options.index(selected_option) == 1:
+        db_uri=POSTGRESQL
+        postgresql_host = st.sidebar.text_input("PostgreSQL Host", value="localhost")
+        postgresql_port = st.sidebar.text_input("PostgreSQL Port", value="5432")
+        postgresql_user = st.sidebar.text_input("PostgreSQL User", value="postgres")
+        postgresql_password = st.sidebar.text_input("PostgreSQL Password", type="password", value="secret")
+        postgresql_db = st.sidebar.text_input("PostgreSQL Database", value="genesis")
+        postgres_link = f"postgresql+psycopg2://{postgresql_user}:{postgresql_password}@{postgresql_host}:{postgresql_port}/{postgresql_db}"
+    else:
+        db_uri=LOCALDB
 
     if not db_uri:
         st.warning("Please select a database to proceed.")
@@ -133,7 +122,7 @@ else:
     if llm_provider == "Ollama":
         ollama_model = st.sidebar.selectbox(
             "Select Ollama Model",
-            ["deepseek-r1", "gemma3", "llava", "codellama"],
+            ["deepseek-r1", "gemma3", "codellama"],
             index=0
         )
 
@@ -193,6 +182,16 @@ else:
         arxiv_tool=ArxivQueryRun(api_wrapper=api_wrapper_arxiv)
         search=DuckDuckGoSearchRun(name="DuckDuckGo Search", description="Search the web for relevant information.")
 
+        # Add web loader tool
+        def load_web_content(url: str) -> str:
+            try:
+                loader = WebBaseLoader(url)
+                docs = loader.load()
+                if docs:
+                    return docs[0].page_content[:1000]  # Return first 1000 chars of content
+                return "No content found on the webpage."
+            except Exception as e:
+                return f"Error loading webpage: {str(e)}"
 
         # User input for questions
         user_question=st.chat_input("Ask any question")
@@ -200,8 +199,6 @@ else:
 
         # Process uploaded files
         documents=[]
-        # retriever=None
-        # webLoader=WebBaseLoader("")
         if uploaded_files:
             for uploaded_file in uploaded_files:
                 tempPDF=f"./pdfs/temp.pdf"
@@ -215,13 +212,6 @@ else:
                 docs=pdfLoader.load()
                 # Add the documents to the list
                 documents.extend(docs)
-
-        # loaders=[pdfLoader, webLoader]
-        # docs=[loader.load() for loader in loaders]
-        # Combine the documents
-        # docs=[doc for doc_list in docs for doc in doc_list]
-        # docs=webLoader.load()
-        # documents.extend(docs)
 
                 # Split and create embeddings
                 text_splitter=RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=200)
@@ -245,7 +235,6 @@ else:
 
                 vectorestore=FAISS.from_documents(documents=splits, embedding=embeddings)
                 retriever=vectorestore.as_retriever()
-                
 
                 retriever_tool=create_retriever_tool(
                     retriever=retriever,
@@ -289,14 +278,32 @@ else:
             You are an intelligent assistant with access to the following tools:
 
             - SQL Agent: Use ONLY if the user's question is explicitly about structured database information such as student names, IDs, employees. Do NOT use this for general reasoning.
-            - Retriever: Use this to answer questions about documents or general facts that may be stored in a knowledge base.
+            - Web Loader: Use this to extract and analyze content from specific web pages. Input should be a valid URL. Use this when users ask about specific web pages or want to analyze web content.
+            - Wikipedia Search: Use this for general knowledge and factual information from Wikipedia.
+            - Arxiv Search: Use this for academic papers and research information.
+            - DuckDuckGo Search: Use this for general web searches when other tools don't have the information.
+            - PDF Retriever: Use this to answer questions about uploaded PDF documents.
             - LLM Chat: Use this for everything else especially open-ended, general, or conversational questions.
+
+            Tool Usage Guidelines:
+            1. SQL Agent: Only for database queries and structured data
+            2. Web Loader: For specific webpage content analysis
+            3. Wikipedia/Arxiv: For factual and academic information
+            4. DuckDuckGo: For general web searches
+            5. PDF Retriever: For uploaded document analysis
+            6. LLM Chat: For general conversation and reasoning
 
             Always think step by step, and only call a tool when necessary.
 
             If a user's question can be answered directly from reasoning or general knowledge, use Hybrid RAG.
 
-            If you're unsure which to use, prefer LLM Chat unless the user explicitly mentions data or the database.
+            If you're unsure which to use, prefer LLM Chat unless the user explicitly mentions:
+            - Database information (use SQL Agent)
+            - Specific web pages (use Web Loader)
+            - Academic papers (use Arxiv)
+            - Wikipedia information (use Wikipedia Search)
+            - General web information (use DuckDuckGo)
+            - PDF content (use PDF Retriever)
 
             Provide comprehensive, detailed responses that include:
             1. A clear and thorough explanation of the main concept or answer
@@ -393,6 +400,11 @@ else:
                 name="SearchWeb",
                 func=search.run,
                 description="Retrieves information from the web."
+            ),
+            Tool(
+            name="Web Loader",
+            func=load_web_content,
+            description="Load and extract content from a webpage URL. Input should be a valid URL."
             )
         ]
 
@@ -428,13 +440,20 @@ else:
             early_stopping_method="generate",
             agent_kwargs={
                 "prefix": """You are a helpful AI assistant. Use tools in this order:
-1. PDF Retriever - For PDF questions
-2. SQL Agent - For database queries
-3. LLM Chat - For general questions
-4. Wikipedia/Arxiv - For facts
-5. Web Search - Last resort
+1. Web Loader - For specific webpage content analysis
+2. PDF Retriever - For PDF questions
+3. SQL Agent - For database queries
+4. Wikipedia/Arxiv - For facts and academic information
+5. DuckDuckGo - For general web searches
+6. LLM Chat - For general questions
 
-Format responses with markdown when helpful. Keep answers clear and concise. For general knowledge questions, use LLM Chat directly.""",
+When using the Web Loader:
+- Input must be a valid URL
+- Use for direct webpage content analysis
+- Extract and summarize webpage content
+- Handle errors gracefully if webpage is inaccessible
+
+Format responses with markdown when helpful. Keep answers clear and concise. For general knowledge questions, use LLM Chat directly. For code, use triple backticks with language specification. For images, use clear image generation prompts.""",
                 "suffix": """Begin!
 
 Question: {input}
@@ -454,7 +473,12 @@ Rules:
 3. Format SQL as plain text
 4. Use lists/tables when helpful
 5. For general knowledge, use LLM Chat directly
-6. Do not display the question, action, action input, observation, thought in the final answer"""
+6. Do not display the question, action, action input, observation, thought in the final answer
+7. Format code with triple backticks and language spec (e.g. ```python, ```javascript)
+8. Do not include any meta-commentary or thought process in Final Answer
+9. For code examples, use proper language tags
+10. For image requests, use clear prompts
+11. For webpage analysis, use Web Loader with valid URLs"""
             }
         )
 
@@ -566,17 +590,22 @@ Rules:
                             st.markdown(f"""
                             <div class="user-message">
                                 <div class="user-message-content">{message.content}</div>
-                                <div class="message-timestamp">{get_timestamp()}</div>
                             </div>
                             """, unsafe_allow_html=True)
                     else:
                         with st.chat_message("assistant", avatar="🤖"):
-                            st.markdown(f"""
-                            <div class="assistant-message">
-                                <div class="message-timestamp">{get_timestamp()}</div>
-                                <div class="assistant-message-content">{message.content}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                            # Check if this is an enhanced response
+                            if message.content.startswith("__ENHANCED_RESPONSE__"):
+                                response_key = message.content.split("__ENHANCED_RESPONSE__")[1]
+                                stored_response = get_enhanced_response(response_key)
+                                if stored_response != "Response not found":
+                                    display_enhanced_response(stored_response, include_images=True, message_id=response_key)
+                            else:
+                                st.markdown(f"""
+                                <div class="assistant-message">
+                                    <div class="assistant-message-content">{message.content}</div>
+                                </div>
+                                """, unsafe_allow_html=True)
 
         if user_question:
             try:
@@ -587,14 +616,13 @@ Rules:
                 st.session_state.chat_history = get_session_history(st.session_state.session_id)
                 
                 # Get current timestamp for user message
-                user_timestamp = get_timestamp()
+                # user_timestamp = get_timestamp()
                 
                 # Display user message on the left with timestamp
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(f"""
                     <div class="user-message">
                         <div class="user-message-content">{user_question}</div>
-                        <div class="message-timestamp">{user_timestamp}</div>
                     </div>
                     """, unsafe_allow_html=True)
                 
@@ -618,19 +646,33 @@ Rules:
                         )
                         
                         # Get current timestamp for AI response
-                        ai_timestamp = get_timestamp()
+                        # ai_timestamp = get_timestamp()
+                        
+                        # Process the response with enhanced parser
+                        response_output = response.get("output", "I apologize, but I couldn't generate a proper response.")
+                        
+                        # Check if this is a SQL query response
+                        if isinstance(response_output, dict) and "result" in response_output:
+                            processed_response = response_output["result"]
+                        else:
+                            processed_response = process_agent_response(response_output, user_question)
                         
                         # Display AI message on the right with timestamp
                         with st.chat_message("assistant", avatar="🤖"):
+                            # Remove both the marker and response key
+                            display_text = processed_response
+                            if "__ENHANCED_RESPONSE__" in processed_response:
+                                display_text = ""
+                            
                             st.markdown(f"""
                             <div class="assistant-message">
-                                <div class="message-timestamp">{ai_timestamp}</div>
-                                <div class="assistant-message-content">{response.get("output", "I apologize, but I couldn't generate a proper response.")}</div>
+                                <div class="assistant-message-content">{display_text}</div>
                             </div>
                             """, unsafe_allow_html=True)
                             
                         # Add the assistant's message to the chat history
-                        st.session_state.chat_history.add_ai_message(response.get("output", ""))
+                        if processed_response:  # Only add if we have a valid response
+                            st.session_state.chat_history.add_ai_message(processed_response)
                         
                     except Exception as e:
                         error_timestamp = get_timestamp()
@@ -642,7 +684,6 @@ Rules:
                         with st.chat_message("assistant", avatar="🤖"):
                             st.markdown(f"""
                             <div class="assistant-message">
-                                <div class="message-timestamp">{error_timestamp}</div>
                                 <div class="assistant-message-content" style="color: #d32f2f;">{error_message}</div>
                             </div>
                             """, unsafe_allow_html=True)
@@ -665,3 +706,4 @@ Rules:
         st.warning("Please enter your Groq API key to proceed.")
         close_sqlite_connection(sqlite_conn)
         close_postgres_connection(postgres_conn)
+        
