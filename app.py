@@ -66,7 +66,7 @@ if not st.experimental_user.is_logged_in:
     st.title("Login Page")
     st.header("This app is private.")
     st.write("Please log in to access the application.")
-    st.write("You can also use your Groq API key to access the application.")
+    st.write("You need to use your Groq API key to access the application.")
     # login_page()
     st.button("Log in with Google", on_click=st.login)
 
@@ -158,22 +158,58 @@ else:
             verbose=True
         )
             
-        # Statefully manage chat histories
-        if "store" not in st.session_state:
-            st.session_state.store = {}
+        # if "session_id" not in st.session_state:
+        #     st.session_state.session_id = 'default'
 
-        if "chat_history" not in st.session_state or st.sidebar.button("Clear Chat History"):
-            st.session_state.chat_history = ChatMessageHistory()
+        # Add chat session management
+        if "chat_sessions" not in st.session_state:
+            st.session_state.chat_sessions = {}
+            st.session_state.chat_sessions['default'] = {
+                "name": "Default Chat",
+                "history": ChatMessageHistory(),
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
             st.session_state.session_id = 'default'
-            st.session_state.store = {}
 
-        if "session_id" not in st.session_state:
-            st.session_state.session_id = 'default'
+        # Add new chat session button
+        if st.sidebar.button("➕ New Chat"):
+            new_session_id = f"chat_{len(st.session_state.chat_sessions)}"
+            st.session_state.chat_sessions[new_session_id] = {
+                "name": f"Chat {len(st.session_state.chat_sessions)}",
+                "history": ChatMessageHistory(),
+                "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            st.session_state.session_id = new_session_id
+            st.rerun()
+
+        # Display chat sessions in sidebar
+        st.sidebar.markdown("### Chat Sessions")
+        for session_id, session_data in st.session_state.chat_sessions.items():
+            col1, col2 = st.sidebar.columns([3, 1])
+            with col1:
+                if st.button(
+                    f"💬 {session_data['name']}",
+                    key=f"session_{session_id}",
+                    use_container_width=True
+                ):
+                    st.session_state.session_id = session_id
+            with col2:
+                if session_id != 'default':
+                    if st.button("🗑️", key=f"delete_{session_id}"):
+                        del st.session_state.chat_sessions[session_id]
+                        if st.session_state.session_id == session_id:
+                            st.session_state.session_id = 'default'
 
         def get_session_history(session:str)-> BaseChatMessageHistory:
-            if session not in st.session_state.store:
-                st.session_state.store[session] = ChatMessageHistory()
-            return st.session_state.store[session]
+            return st.session_state.chat_sessions[session]["history"]
+
+        # Update the chat history management
+        def update_chat_history(message_type: str, content: str):
+            current_session = st.session_state.session_id
+            if message_type == "user":
+                st.session_state.chat_sessions[current_session]["history"].add_user_message(content)
+            else:
+                st.session_state.chat_sessions[current_session]["history"].add_ai_message(content)
 
         # Use the in-built tool of wikipedia and arxiv
         api_wrapper_wiki=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=250)
@@ -269,13 +305,12 @@ else:
         if retriever is not None:
             history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
         else:
-            history_aware_retriever = None  # or raise a warning
-        # history_aware_retriever=create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+            history_aware_retriever = None 
 
-        # Answer question prompt
         system_prompt = (
             """
-            You are an intelligent assistant with access to the following tools:
+            You are Genesis, an intelligent AI assistant. When users address you with "hey genesis" or similar greetings, 
+            respond in a friendly and helpful manner. You have access to the following tools:
 
             - SQL Agent: Use ONLY if the user's question is explicitly about structured database information such as student names, IDs, employees. Do NOT use this for general reasoning.
             - Web Loader: Use this to extract and analyze content from specific web pages. Input should be a valid URL. Use this when users ask about specific web pages or want to analyze web content.
@@ -333,11 +368,6 @@ else:
 
         qa_chain= create_stuff_documents_chain(llm,answer_prompt)
 
-        def get_session_history(session:str)-> BaseChatMessageHistory:
-            if session not in st.session_state.store:
-                st.session_state.store[session] = ChatMessageHistory()
-            return st.session_state.store[session]
-        
         if retriever is not None:
             retrieval_chain=create_retrieval_chain(
                 retriever=history_aware_retriever,
@@ -422,7 +452,7 @@ else:
                 Tool(
                     name="LLM Chat",
                     func=lambda query: rag_chain.invoke(
-                        {"input": query, "chat_history": st.session_state.chat_history.messages},
+                        {"input": query, "chat_history": st.session_state.chat_sessions[st.session_state.session_id]["history"].messages},
                         {'configurable': {'session_id': st.session_state.session_id}}
                     ),
                     description="Use this for any general conversation, reasoning, or non-database questions."
@@ -565,10 +595,6 @@ Rules:
         </style>
         """, unsafe_allow_html=True)
 
-        # Add timestamp function
-        def get_timestamp():
-            return datetime.now().strftime("%H:%M")
-
         # Add typing indicator component
         def show_typing_indicator():
             with st.chat_message("assistant", avatar="🤖"):
@@ -580,11 +606,13 @@ Rules:
                 </div>
                 """, unsafe_allow_html=True)
 
-        # Display chat history with stored timestamps
-        if "chat_history" in st.session_state:
-            chat_history = st.session_state.chat_history
-            if hasattr(chat_history, 'messages'):
-                for message in chat_history.messages:
+        # Display chat history
+        if "chat_sessions" in st.session_state:
+            current_session = st.session_state.session_id
+            current_history = st.session_state.chat_sessions[current_session]["history"]
+            
+            if hasattr(current_history, 'messages'):
+                for message in current_history.messages:
                     if message.type == "human":
                         with st.chat_message("user", avatar="👤"):
                             st.markdown(f"""
@@ -594,7 +622,6 @@ Rules:
                             """, unsafe_allow_html=True)
                     else:
                         with st.chat_message("assistant", avatar="🤖"):
-                            # Check if this is an enhanced response
                             if message.content.startswith("__ENHANCED_RESPONSE__"):
                                 response_key = message.content.split("__ENHANCED_RESPONSE__")[1]
                                 stored_response = get_enhanced_response(response_key)
@@ -613,12 +640,9 @@ Rules:
                 embedding = embeddings.embed_query(user_question)
 
                 # Get the session history
-                st.session_state.chat_history = get_session_history(st.session_state.session_id)
+                current_history = st.session_state.chat_sessions[st.session_state.session_id]["history"]
                 
-                # Get current timestamp for user message
-                # user_timestamp = get_timestamp()
-                
-                # Display user message on the left with timestamp
+                # Display user message
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(f"""
                     <div class="user-message">
@@ -626,29 +650,23 @@ Rules:
                     </div>
                     """, unsafe_allow_html=True)
                 
-                # Add user message to history with timestamp
-                st.session_state.chat_history.add_user_message(user_question)
+                # Add user message to history
+                update_chat_history("user", user_question)
 
-                # Create a container for the response
-                response_container = st.empty()
-                
-                # Run the chain with proper error handling and chat history
+                # Process response
                 with st.spinner('Thinking...'):
                     try:
-                        st_cb = StreamlitCallbackHandler(response_container, expand_new_thoughts=False)
+                        st_cb = StreamlitCallbackHandler(st.empty(), expand_new_thoughts=False)
                         response = agent.invoke(
                             {
                                 "input": user_question,
-                                "chat_history": st.session_state.chat_history.messages
+                                "chat_history": current_history.messages
                             },
                             callbacks=[st_cb],
                             config={"configurable": {"session_id": st.session_state.session_id}}
                         )
                         
-                        # Get current timestamp for AI response
-                        # ai_timestamp = get_timestamp()
-                        
-                        # Process the response with enhanced parser
+                        # Process the response
                         response_output = response.get("output", "I apologize, but I couldn't generate a proper response.")
                         
                         # Check if this is a SQL query response
@@ -659,7 +677,6 @@ Rules:
                         
                         # Display AI message on the right with timestamp
                         with st.chat_message("assistant", avatar="🤖"):
-                            # Remove both the marker and response key
                             display_text = processed_response
                             if "__ENHANCED_RESPONSE__" in processed_response:
                                 display_text = ""
@@ -670,16 +687,12 @@ Rules:
                             </div>
                             """, unsafe_allow_html=True)
                             
-                        # Add the assistant's message to the chat history
-                        if processed_response:  # Only add if we have a valid response
-                            st.session_state.chat_history.add_ai_message(processed_response)
+                        # Add the assistant's message to history
+                        if processed_response:
+                            update_chat_history("ai", processed_response)
                         
                     except Exception as e:
-                        error_timestamp = get_timestamp()
                         error_message = f"An error occurred while processing your request: {str(e)}"
-                        
-                        # Create a container for the error message
-                        error_container = st.empty()
                         
                         with st.chat_message("assistant", avatar="🤖"):
                             st.markdown(f"""
@@ -688,12 +701,10 @@ Rules:
                             </div>
                             """, unsafe_allow_html=True)
                             
-                            # Add a retry button
-                            if st.button("🔄 Retry", key="retry_button"):
-                                st.session_state.chat_history.messages.pop()  # Remove the error message
-                                st.rerun()  # Rerun the app to retry the request
-                            
-                        st.session_state.chat_history.add_ai_message(error_message)
+                        if st.button("🔄 Retry", key="retry_button"):
+                            st.rerun()
+                        
+                        update_chat_history("ai", error_message)
                         
             except Exception as e:
                 st.error(f"An unexpected error occurred: {str(e)}")
