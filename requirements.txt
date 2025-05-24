@@ -48,8 +48,8 @@ torch
 torchvision
 torchaudio
 aws
-neo4j==5.14
-openai-whisper
+# neo4j==5.14
+# openai-whisper
 tiktoken
 numpy
 pdf2image
@@ -65,7 +65,7 @@ scipy
 playsound==1.2.2
 sounddevice
 pvporcupine
-pyaudio 
+# pyaudio
 langgraph
 cassio
 Authlib
@@ -73,7 +73,7 @@ streamlit_authenticator
 google-auth 
 google-auth-oauthlib 
 google-auth-httplib2
-llama-cpp-python
+# llama-cpp-python
 faster-whisper
 pyttsx3
 redis
