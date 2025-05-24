@@ -54,7 +54,7 @@ tiktoken
 numpy
 pdf2image
 boto3
-psycopg2
+psycopg2-binary==2.9.10
 diffusers 
 transformers 
 accelerate 
@@ -62,7 +62,7 @@ scikit-learn
 bark
 django
 scipy
-playsound
+playsound==1.2.2
 sounddevice
 pvporcupine
 pyaudio 
