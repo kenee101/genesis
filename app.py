@@ -1,20 +1,17 @@
+from enhanced_parser import process_agent_response, display_enhanced_response, get_enhanced_response
 import streamlit as st
 import numpy as np
 import sqlite3
 from pathlib import Path
-# from langchain.memory import ConversationBufferMemory
-# from langchain.chains import ConversationChain
-# from langchain.chains import ConversationalRetrievalChain
 from langchain_community.utilities.sql_database import SQLDatabase
-from langchain_experimental.sql import SQLDatabaseChain # type: ignore
+from langchain_experimental.sql import SQLDatabaseChain  # type: ignore
 from langchain.chains import create_history_aware_retriever, create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-# from langchain_chroma import Chroma
 from langchain_community.vectorstores import FAISS
-from langchain_community.llms import Ollama 
+from langchain_community.llms import Ollama
 
 from langchain_community.chat_message_histories import ChatMessageHistory
-from langchain_core.chat_history import BaseChatMessageHistory 
+from langchain_core.chat_history import BaseChatMessageHistory
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from langchain_core.documents import Document
 from langchain_groq import ChatGroq
@@ -30,7 +27,7 @@ from langchain_community.callbacks.streamlit import StreamlitCallbackHandler
 from langchain.tools import Tool
 from sqlalchemy import create_engine
 from PIL import Image
-import pytesseract # type: ignore
+import pytesseract  # type: ignore
 from pdf2image import convert_from_path
 
 import uuid
@@ -39,13 +36,13 @@ import json
 import re
 from datetime import datetime
 
-from databases.postgres.postgres import store_prompt_data, store_employee_data, postgres_conn, close_postgres_connection
-from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query,run_agent_query
+# from databases.postgres.postgres import store_prompt_data, store_employee_data, postgres_conn, close_postgres_connection
+from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query, run_agent_query
+from databases.sqlite.users import register_user, verify_user, get_all_users
 
 from dotenv import load_dotenv
 load_dotenv()
 
-from enhanced_parser import process_agent_response, display_enhanced_response, get_enhanced_response
 
 # Set page config
 st.set_page_config(page_title="Genesis", page_icon="🤖")
@@ -54,51 +51,134 @@ st.set_page_config(page_title="Genesis", page_icon="🤖")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 os.environ["HF_TOKEN"] = os.getenv("HF_TOKEN")
 os.environ["USER_AGENT"] = "GenesisAGI/1.0 (+https://github.com/kenee101/genesis)"
-embeddings=HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
-LOCALDB="USE_LOCALDB"
-POSTGRESQL="USE_POSTGRESQL"
-db_uri=""
+embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+LOCALDB = "USE_LOCALDB"
+POSTGRESQL = "USE_POSTGRESQL"
+db_uri = ""
 
-options = ['Use SQLite 3 Database - Students.db', 'Connect to PostgreSQL Database - GENESIS']
+options = ['Connect to SQLite 3 Database',
+           'Connect to PostgreSQL Database']
 
-# Check if the user is authenticated
-if not st.experimental_user.is_logged_in:
-    st.title("Login Page")
+# Initialize session state for authentication
+if 'authenticated' not in st.session_state:
+    st.session_state.authenticated = False
+if 'show_register' not in st.session_state:
+    st.session_state.show_register = False
+if 'username' not in st.session_state:
+    st.session_state.username = ""
+if 'password' not in st.session_state:
+    st.session_state.password = ""
+if 'new_username' not in st.session_state:
+    st.session_state.new_username = ""
+if 'new_password' not in st.session_state:
+    st.session_state.new_password = ""
+if 'confirm_password' not in st.session_state:
+    st.session_state.confirm_password = ""
+
+
+def redirect_to_login():
+    """Programmatically redirect to login page"""
+    st.session_state.authenticated = False
+    st.session_state.show_register = False
+    st.session_state.username = ""
+    st.session_state.password = ""
+    st.session_state.new_username = ""
+    st.session_state.new_password = ""
+    st.session_state.confirm_password = ""
+    st.rerun()
+
+
+# Simple authentication check
+if not st.session_state.authenticated:
+    # st.title("Login Page")
     st.header("This app is private.")
     st.write("Please log in to access the application.")
-    st.write("You need to use your Groq API key to access the application.")
-    # login_page()
-    st.button("Log in with Google", on_click=st.login)
 
-else:    
-    st.button("Log out", on_click=st.logout)
-    st.write(f"Hello, {st.experimental_user.name}!")
-    st.title("Welcome to GENESIS")
-    
+    # Toggle between login and register
+    if st.button("Register" if not st.session_state.show_register else "Login"):
+        st.session_state.show_register = not st.session_state.show_register
+        # st.rerun()
+
+    if st.session_state.show_register:
+        # Registration form
+        st.subheader("Sign Up")
+        with st.form("register_form"):
+            st.session_state.new_username = st.text_input(
+                "Choose Username", value=st.session_state.new_username)
+            st.session_state.new_password = st.text_input(
+                "Choose Password", type="password", value=st.session_state.new_password)
+            st.session_state.confirm_password = st.text_input(
+                "Confirm Password", type="password", value=st.session_state.confirm_password)
+            register_submitted = st.form_submit_button("Register")
+
+            if register_submitted:
+                if st.session_state.new_password != st.session_state.confirm_password:
+                    st.error("Passwords do not match!")
+                elif len(st.session_state.new_password) < 6:
+                    st.error("Password must be at least 6 characters long!")
+                else:
+                    if register_user(st.session_state.new_username, st.session_state.new_password):
+                        st.success("Registration successful! Please log in.")
+                        st.session_state.show_register = False
+                        # Clear registration fields
+                        st.session_state.new_username = ""
+                        st.session_state.new_password = ""
+                        st.session_state.confirm_password = ""
+                        st.rerun()
+                    else:
+                        st.error("Username already exists!")
+    else:
+        # Login form
+        st.subheader("Login")
+        with st.form("login_form"):
+            st.session_state.username = st.text_input(
+                "Username", value=st.session_state.username)
+            st.session_state.password = st.text_input(
+                "Password", type="password", value=st.session_state.password)
+            login_submitted = st.form_submit_button("Login")
+
+            if login_submitted:
+                if verify_user(st.session_state.username, st.session_state.password):
+                    st.session_state.authenticated = True
+                    st.session_state.username = st.session_state.username
+                    # Clear login fields
+                    st.session_state.password = ""
+                    st.success("Login successful!")
+                    st.rerun()
+                else:
+                    st.error("Invalid username or password")
+else:
+    if st.sidebar.button("Log out"):
+        redirect_to_login()
+
+    st.title(f"Welcome to GENESIS, {st.session_state.username}!")
+
     selected_option = st.sidebar.radio("Select Database", options)
 
     if options.index(selected_option) == 1:
-        db_uri=POSTGRESQL
-        postgresql_host = st.sidebar.text_input("PostgreSQL Host", value="localhost")
-        postgresql_port = st.sidebar.text_input("PostgreSQL Port", value="5432")
-        postgresql_user = st.sidebar.text_input("PostgreSQL User", value="postgres")
-        postgresql_password = st.sidebar.text_input("PostgreSQL Password", type="password", value="secret")
-        postgresql_db = st.sidebar.text_input("PostgreSQL Database", value="genesis")
+        db_uri = POSTGRESQL
+        postgresql_host = st.sidebar.text_input("PostgreSQL Host")
+        postgresql_port = st.sidebar.text_input("PostgreSQL Port")
+        postgresql_user = st.sidebar.text_input("PostgreSQL User")
+        postgresql_password = st.sidebar.text_input(
+            "PostgreSQL Password", type="password")
+        postgresql_db = st.sidebar.text_input("PostgreSQL Database")
         postgres_link = f"postgresql+psycopg2://{postgresql_user}:{postgresql_password}@{postgresql_host}:{postgresql_port}/{postgresql_db}"
     else:
-        db_uri=LOCALDB
+        db_uri = LOCALDB
 
     if not db_uri:
         st.warning("Please select a database to proceed.")
 
     sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
-    api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
+    api_key = os.getenv("GROQ_API_KEY")
+    # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
     # LLM Selection
     llm_provider = st.sidebar.selectbox(
-        "Select LLM Provider",
-        ["Groq", "Ollama"],
+        "LLM Provider",
+        ["Groq"],
         index=0
     )
 
@@ -107,44 +187,48 @@ else:
     def initialize_llm(provider: str, api_key: str = None, model_name: str = None):
         if provider == "Groq":
             if not api_key:
-                st.warning("Please enter your Groq API key to use Groq models.")
+                st.warning(
+                    "Please enter your Groq API key to use Groq models.")
                 return None
             return ChatGroq(groq_api_key=api_key, model_name="Gemma2-9b-It")
-        elif provider == "Ollama":
-            if not model_name:
-                st.warning("Please select an Ollama model.")
-                return None
-            return Ollama(model=model_name)
+        # elif provider == "Ollama":
+        #     if not model_name:
+        #         st.warning("Please select an Ollama model.")
+        #         return None
+        #     return Ollama(model=model_name)
         return None
 
     # Initialize Ollama model selection if Ollama is selected
-    ollama_model = None
-    if llm_provider == "Ollama":
-        ollama_model = st.sidebar.selectbox(
-            "Select Ollama Model",
-            ["deepseek-r1", "gemma3", "codellama"],
-            index=0
-        )
+    # ollama_model = None
+    # if llm_provider == "Ollama":
+    #     ollama_model = st.sidebar.selectbox(
+    #         "Select Ollama Model",
+    #         ["deepseek-r1", "gemma3", "codellama"],
+    #         index=0
+    #     )
 
     # Initialize the LLM
-    llm = initialize_llm(llm_provider, api_key, ollama_model)
+    llm = initialize_llm(llm_provider, api_key)
 
     if llm:
         @st.cache_resource(ttl=10)
         def configure_db():
             if db_uri == LOCALDB:
                 # Use SQLite database
-                dbfilepath = (Path(__file__).parent/"databases/sqlite/students.db").absolute()
+                dbfilepath = (Path(__file__).parent /
+                              "databases/sqlite/users.db").absolute()
                 print(f"Database file path: {dbfilepath}")
-                creator = lambda: sqlite3.connect(f"file:{dbfilepath}?mode=ro", uri=True)
+                def creator(): return sqlite3.connect(
+                    f"file:{dbfilepath}?mode=ro", uri=True)
                 return SQLDatabase(engine=create_engine('sqlite:///', creator=creator))
             elif db_uri == POSTGRESQL:
                 # Use PostgreSQL database
                 if not (postgresql_host and postgresql_port and postgresql_user and postgresql_password and postgresql_db):
-                    st.warning("Please enter your PostgreSQL credentials to proceed.")
+                    st.warning(
+                        "Please enter your PostgreSQL credentials to proceed.")
                     st.stop()
                 return SQLDatabase(engine=create_engine(postgres_link))
-            
+
         db = configure_db()
 
         # Create a SQL database chain
@@ -157,9 +241,6 @@ else:
             top_k=3,
             verbose=True
         )
-            
-        # if "session_id" not in st.session_state:
-        #     st.session_state.session_id = 'default'
 
         # Add chat session management
         if "chat_sessions" not in st.session_state:
@@ -185,6 +266,9 @@ else:
         # Display chat sessions in sidebar
         st.sidebar.markdown("### Chat Sessions")
         for session_id, session_data in st.session_state.chat_sessions.items():
+        # sessions_items = list(st.session_state.chat_sessions.items())
+        # for session_id, session_data in sessions_items:
+
             col1, col2 = st.sidebar.columns([3, 1])
             with col1:
                 if st.button(
@@ -199,24 +283,30 @@ else:
                         del st.session_state.chat_sessions[session_id]
                         if st.session_state.session_id == session_id:
                             st.session_state.session_id = 'default'
+                        st.rerun()
 
-        def get_session_history(session:str)-> BaseChatMessageHistory:
+        def get_session_history(session: str) -> BaseChatMessageHistory:
             return st.session_state.chat_sessions[session]["history"]
 
         # Update the chat history management
         def update_chat_history(message_type: str, content: str):
             current_session = st.session_state.session_id
             if message_type == "user":
-                st.session_state.chat_sessions[current_session]["history"].add_user_message(content)
+                st.session_state.chat_sessions[current_session]["history"].add_user_message(
+                    content)
             else:
-                st.session_state.chat_sessions[current_session]["history"].add_ai_message(content)
+                st.session_state.chat_sessions[current_session]["history"].add_ai_message(
+                    content)
 
         # Use the in-built tool of wikipedia and arxiv
-        api_wrapper_wiki=WikipediaAPIWrapper(top_k_results=1,doc_content_chars_max=250)
-        api_wrapper_arxiv=ArxivAPIWrapper(top_k_results=1,doc_content_chars_max=250)
-        wiki_tool=WikipediaQueryRun(api_wrapper=api_wrapper_wiki)
-        arxiv_tool=ArxivQueryRun(api_wrapper=api_wrapper_arxiv)
-        search=DuckDuckGoSearchRun(name="DuckDuckGo Search", description="Search the web for relevant information.")
+        api_wrapper_wiki = WikipediaAPIWrapper(
+            top_k_results=1, doc_content_chars_max=250)
+        api_wrapper_arxiv = ArxivAPIWrapper(
+            top_k_results=1, doc_content_chars_max=250)
+        wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper_wiki)
+        arxiv_tool = ArxivQueryRun(api_wrapper=api_wrapper_arxiv)
+        search = DuckDuckGoSearchRun(
+            name="DuckDuckGo Search", description="Search the web for relevant information.")
 
         # Add web loader tool
         def load_web_content(url: str) -> str:
@@ -224,34 +314,37 @@ else:
                 loader = WebBaseLoader(url)
                 docs = loader.load()
                 if docs:
-                    return docs[0].page_content[:1000]  # Return first 1000 chars of content
+                    # Return first 1000 chars of content
+                    return docs[0].page_content[:1000]
                 return "No content found on the webpage."
             except Exception as e:
                 return f"Error loading webpage: {str(e)}"
 
         # User input for questions
-        user_question=st.chat_input("Ask any question")
-        uploaded_files=st.file_uploader("Choose a PDF file", type="pdf", accept_multiple_files=True)
+        user_question = st.chat_input("Ask any question")
+        uploaded_files = st.file_uploader(
+            "Choose a PDF file", type="pdf", accept_multiple_files=True)
 
         # Process uploaded files
-        documents=[]
+        documents = []
         if uploaded_files:
             for uploaded_file in uploaded_files:
-                tempPDF=f"./pdfs/temp.pdf"
+                tempPDF = f"./pdfs/temp.pdf"
                 with open(tempPDF, "wb") as file:
                     file.write(uploaded_file.read())
-                    file_name=uploaded_file.name
+                    file_name = uploaded_file.name
 
                 # Load the PDF
-                pdfLoader=PyPDFLoader(tempPDF)
+                pdfLoader = PyPDFLoader(tempPDF)
                 # Load the documents
-                docs=pdfLoader.load()
+                docs = pdfLoader.load()
                 # Add the documents to the list
                 documents.extend(docs)
 
                 # Split and create embeddings
-                text_splitter=RecursiveCharacterTextSplitter(chunk_size=5000, chunk_overlap=200)
-                splits=text_splitter.split_documents(documents)
+                text_splitter = RecursiveCharacterTextSplitter(
+                    chunk_size=5000, chunk_overlap=200)
+                splits = text_splitter.split_documents(documents)
 
                 if not splits:
                     # Convert PDF pages to images
@@ -261,27 +354,29 @@ else:
                     for i, page in enumerate(pages):
                         text = pytesseract.image_to_string(page)
                         if text.strip():
-                            ocr_texts.append(Document(page_content=text, metadata={"source": f"{file_name}_page_{i+1}"}))
+                            ocr_texts.append(Document(page_content=text, metadata={
+                                             "source": f"{file_name}_page_{i+1}"}))
 
                     if not ocr_texts:
-                        st.error("OCR also failed to extract text from the scanned PDF.")
+                        st.error(
+                            "OCR also failed to extract text from the scanned PDF.")
                         st.stop()
 
                     splits = text_splitter.split_documents(ocr_texts)
 
-                vectorestore=FAISS.from_documents(documents=splits, embedding=embeddings)
-                retriever=vectorestore.as_retriever()
+                vectorestore = FAISS.from_documents(
+                    documents=splits, embedding=embeddings)
+                retriever = vectorestore.as_retriever()
 
-                retriever_tool=create_retriever_tool(
+                retriever_tool = create_retriever_tool(
                     retriever=retriever,
                     name="pdf_retriever",
                     description="A tool to retrieve relevant documents from the PDF.",
                 )
 
         else:
-            retriever_tool=None
-            retriever=None
-
+            retriever_tool = None
+            retriever = None
 
         contextualize_q_system_prompt = (
             """
@@ -298,14 +393,15 @@ else:
             [
                 ("system", contextualize_q_system_prompt),
                 MessagesPlaceholder("chat_history"),
-                ("human", "{input}"), 
+                ("human", "{input}"),
             ]
         )
 
         if retriever is not None:
-            history_aware_retriever = create_history_aware_retriever(llm, retriever, contextualize_q_prompt)
+            history_aware_retriever = create_history_aware_retriever(
+                llm, retriever, contextualize_q_prompt)
         else:
-            history_aware_retriever = None 
+            history_aware_retriever = None
 
         system_prompt = (
             """
@@ -366,16 +462,15 @@ else:
             ]
         )
 
-        qa_chain= create_stuff_documents_chain(llm,answer_prompt)
+        qa_chain = create_stuff_documents_chain(llm, answer_prompt)
 
         if retriever is not None:
-            retrieval_chain=create_retrieval_chain(
+            retrieval_chain = create_retrieval_chain(
                 retriever=history_aware_retriever,
                 combine_docs_chain=qa_chain,
             )
         else:
-            retrieval_chain=None
-
+            retrieval_chain = None
 
         # Create the conversational RAG chain
         rag_chain = None
@@ -432,9 +527,9 @@ else:
                 description="Retrieves information from the web."
             ),
             Tool(
-            name="Web Loader",
-            func=load_web_content,
-            description="Load and extract content from a webpage URL. Input should be a valid URL."
+                name="Web Loader",
+                func=load_web_content,
+                description="Load and extract content from a webpage URL. Input should be a valid URL."
             )
         ]
 
@@ -452,7 +547,8 @@ else:
                 Tool(
                     name="LLM Chat",
                     func=lambda query: rag_chain.invoke(
-                        {"input": query, "chat_history": st.session_state.chat_sessions[st.session_state.session_id]["history"].messages},
+                        {"input": query,
+                            "chat_history": st.session_state.chat_sessions[st.session_state.session_id]["history"].messages},
                         {'configurable': {'session_id': st.session_state.session_id}}
                     ),
                     description="Use this for any general conversation, reasoning, or non-database questions."
@@ -530,6 +626,12 @@ Rules:
                 margin-bottom: 1rem;
                 display: flex;
                 flex-direction: row;
+            }
+            .stTextInput {
+                cursor: pointer !important;
+            }
+            .stTextInput input {
+                cursor: text !important;
             }
             .stChatMessage[data-testid="stChatMessage"] {
                 background-color: transparent;
@@ -610,7 +712,7 @@ Rules:
         if "chat_sessions" in st.session_state:
             current_session = st.session_state.session_id
             current_history = st.session_state.chat_sessions[current_session]["history"]
-            
+
             if hasattr(current_history, 'messages'):
                 for message in current_history.messages:
                     if message.type == "human":
@@ -623,10 +725,13 @@ Rules:
                     else:
                         with st.chat_message("assistant", avatar="🤖"):
                             if message.content.startswith("__ENHANCED_RESPONSE__"):
-                                response_key = message.content.split("__ENHANCED_RESPONSE__")[1]
-                                stored_response = get_enhanced_response(response_key)
+                                response_key = message.content.split(
+                                    "__ENHANCED_RESPONSE__")[1]
+                                stored_response = get_enhanced_response(
+                                    response_key)
                                 if stored_response != "Response not found":
-                                    display_enhanced_response(stored_response, include_images=True, message_id=response_key)
+                                    display_enhanced_response(
+                                        stored_response, include_images=True, message_id=response_key)
                             else:
                                 st.markdown(f"""
                                 <div class="assistant-message">
@@ -641,7 +746,7 @@ Rules:
 
                 # Get the session history
                 current_history = st.session_state.chat_sessions[st.session_state.session_id]["history"]
-                
+
                 # Display user message
                 with st.chat_message("user", avatar="👤"):
                     st.markdown(f"""
@@ -649,72 +754,74 @@ Rules:
                         <div class="user-message-content">{user_question}</div>
                     </div>
                     """, unsafe_allow_html=True)
-                
+
                 # Add user message to history
                 update_chat_history("user", user_question)
 
                 # Process response
                 with st.spinner('Thinking...'):
                     try:
-                        st_cb = StreamlitCallbackHandler(st.empty(), expand_new_thoughts=False)
+                        st_cb = StreamlitCallbackHandler(
+                            st.empty(), expand_new_thoughts=False)
                         response = agent.invoke(
                             {
                                 "input": user_question,
                                 "chat_history": current_history.messages
                             },
                             callbacks=[st_cb],
-                            config={"configurable": {"session_id": st.session_state.session_id}}
+                            config={"configurable": {
+                                "session_id": st.session_state.session_id}}
                         )
-                        
+
                         # Process the response
-                        response_output = response.get("output", "I apologize, but I couldn't generate a proper response.")
-                        
+                        response_output = response.get(
+                            "output", "I apologize, but I couldn't generate a proper response.")
+
                         # Check if this is a SQL query response
                         if isinstance(response_output, dict) and "result" in response_output:
                             processed_response = response_output["result"]
                         else:
-                            processed_response = process_agent_response(response_output, user_question)
-                        
+                            processed_response = process_agent_response(
+                                response_output, user_question)
+
                         # Display AI message on the right with timestamp
                         with st.chat_message("assistant", avatar="🤖"):
                             display_text = processed_response
                             if "__ENHANCED_RESPONSE__" in processed_response:
                                 display_text = ""
-                            
+
                             st.markdown(f"""
                             <div class="assistant-message">
                                 <div class="assistant-message-content">{display_text}</div>
                             </div>
                             """, unsafe_allow_html=True)
-                            
+
                         # Add the assistant's message to history
                         if processed_response:
                             update_chat_history("ai", processed_response)
-                        
+
                     except Exception as e:
                         error_message = f"An error occurred while processing your request: {str(e)}"
-                        
+
                         with st.chat_message("assistant", avatar="🤖"):
                             st.markdown(f"""
                             <div class="assistant-message">
-                                <div class="assistant-message-content" style="color: #d32f2f;">{error_message}</div>
+                                <div class="assistant-message-content">{error_message}</div>
                             </div>
                             """, unsafe_allow_html=True)
-                            
+
                         if st.button("🔄 Retry", key="retry_button"):
                             st.rerun()
-                        
+
                         update_chat_history("ai", error_message)
-                        
+
             except Exception as e:
                 st.error(f"An unexpected error occurred: {str(e)}")
                 if st.button("🔄 Refresh", key="refresh_button"):
                     st.rerun()
                 st.stop()
 
-
     else:
         st.warning("Please enter your Groq API key to proceed.")
         close_sqlite_connection(sqlite_conn)
-        close_postgres_connection(postgres_conn)
-        
+        # close_postgres_connection(postgres_conn)

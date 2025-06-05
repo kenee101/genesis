@@ -21,13 +21,13 @@ langchain-astradb
 # langchain-elasticsearch
 # langchain-mongodb
 langchain-ollama
-langchain-pinecone
+# langchain-pinecone
 langchain-postgres
-langchain-redis
+# langchain-redis
 langchain-unstructured
 langserve
 streamlit
-fastapi
+# fastapi
 pydantic
 uvicorn
 pandas
@@ -36,18 +36,17 @@ duckduckgo_search==5.3.1b1
 mysql-connector-python
 SQLAlchemy
 validators==0.28.1
-youtube_transcript_api
 unstructured
 pytube
 numexpr
 huggingface_hub
-pinecone-client
-pinecone-text
-pinecone-notebooks
-torch
-torchvision
-torchaudio
-aws
+# pinecone-client
+# pinecone-text
+# pinecone-notebooks
+# torch
+# torchvision
+# torchaudio
+# aws
 # neo4j==5.14
 # openai-whisper
 tiktoken
@@ -59,12 +58,11 @@ diffusers
 transformers 
 accelerate 
 scikit-learn
-bark
-django
+# bark
 scipy
-playsound==1.2.2
-sounddevice
-pvporcupine
+# playsound==1.2.2
+# sounddevice
+# pvporcupine
 # pyaudio
 langgraph
 cassio
@@ -74,10 +72,9 @@ google-auth
 google-auth-oauthlib 
 google-auth-httplib2
 # llama-cpp-python
-faster-whisper
+# faster-whisper
 pyttsx3
-redis
+# redis
 pytesseract
-langchain-redis
 seaborn
 matplotlib

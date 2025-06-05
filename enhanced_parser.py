@@ -2,7 +2,7 @@ import re
 import base64
 import requests
 from io import BytesIO
-import matplotlib.pyplot as plt # type: ignore
+import matplotlib.pyplot as plt  # type: ignore
 # import seaborn as sns
 from langchain.output_parsers import OutputFixingParser, PydanticOutputParser
 from pydantic import BaseModel, Field
@@ -11,31 +11,41 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import time
-from improved_code_display import get_improved_css_styles, create_enhanced_code_block, get_file_extension
 
 # Enhanced output parser for code and images
+
+
 class CodeBlock(BaseModel):
     language: str = Field(description="Programming language of the code")
     code: str = Field(description="The actual code content")
-    explanation: Optional[str] = Field(description="Optional explanation of the code")
+    explanation: Optional[str] = Field(
+        description="Optional explanation of the code")
+
 
 class ImageRequest(BaseModel):
     prompt: str = Field(description="Image generation prompt")
-    style: Optional[str] = Field(description="Image style (realistic, cartoon, etc.)")
-    size: Optional[str] = Field(description="Image size (256x256, 512x512, 1024x1024)")
+    style: Optional[str] = Field(
+        description="Image style (realistic, cartoon, etc.)")
+    size: Optional[str] = Field(
+        description="Image size (256x256, 512x512, 1024x1024)")
+
 
 class EnhancedResponse(BaseModel):
     text_content: str = Field(description="Main text response")
-    code_blocks: List[CodeBlock] = Field(default=[], description="Code blocks in the response")
-    image_requests: List[ImageRequest] = Field(default=[], description="Image generation requests")
-    has_visualization: bool = Field(default=False, description="Whether response includes data visualization")
+    code_blocks: List[CodeBlock] = Field(
+        default=[], description="Code blocks in the response")
+    image_requests: List[ImageRequest] = Field(
+        default=[], description="Image generation requests")
+    has_visualization: bool = Field(
+        default=False, description="Whether response includes data visualization")
+
 
 def parse_code_blocks(text: str) -> List[CodeBlock]:
     """Extract code blocks from markdown text"""
     code_blocks = []
     pattern = r'```(\w+)?\n(.*?)\n```'
     matches = re.findall(pattern, text, re.DOTALL)
-    
+
     for language, code in matches:
         if not language:
             language = "text"
@@ -44,13 +54,14 @@ def parse_code_blocks(text: str) -> List[CodeBlock]:
             code=code.strip(),
             explanation=None
         ))
-    
+
     return code_blocks
+
 
 def detect_image_requests(text: str) -> List[ImageRequest]:
     """Detect image generation requests in text"""
     image_requests = []
-    
+
     # Common patterns for image requests
     image_patterns = [
         r"generate an? image of (.*?)(?:\.|$|,)",
@@ -59,7 +70,7 @@ def detect_image_requests(text: str) -> List[ImageRequest]:
         r"visualize (.*?)(?:\.|$|,)",
         r"show me an? image of (.*?)(?:\.|$|,)"
     ]
-    
+
     for pattern in image_patterns:
         matches = re.findall(pattern, text.lower(), re.IGNORECASE)
         for match in matches:
@@ -68,84 +79,87 @@ def detect_image_requests(text: str) -> List[ImageRequest]:
                 style="realistic",
                 size="512x512"
             ))
-    
+
     return image_requests
+
 
 def generate_image_with_api(prompt: str, api_key: str = None) -> Optional[str]:
     """Generate image using external API (placeholder for your preferred service)"""
     try:
         # Example using DALL-E API (you'll need to implement based on your chosen service)
         # This is a placeholder - replace with your actual image generation service
-        
+
         # For now, we'll create a simple matplotlib visualization
         fig, ax = plt.subplots(figsize=(8, 6))
-        ax.text(0.5, 0.5, f"Generated Image:\n{prompt}", 
-                ha='center', va='center', fontsize=14, 
+        ax.text(0.5, 0.5, f"Generated Image:\n{prompt}",
+                ha='center', va='center', fontsize=14,
                 bbox=dict(boxstyle="round,pad=0.3", facecolor="lightblue"))
         ax.set_xlim(0, 1)
         ax.set_ylim(0, 1)
         ax.axis('off')
-        
+
         # Convert to base64
         buffer = BytesIO()
         plt.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
         buffer.seek(0)
         image_base64 = base64.b64encode(buffer.getvalue()).decode()
         plt.close()
-        
+
         return image_base64
     except Exception as e:
         print(f"Error generating image: {e}")
         return None
 
+
 def create_data_visualization(data: Dict[str, Any], chart_type: str = "bar") -> Optional[str]:
     """Create data visualizations from structured data"""
     try:
         fig, ax = plt.subplots(figsize=(10, 6))
-        
+
         if chart_type == "bar" and "x" in data and "y" in data:
             ax.bar(data["x"], data["y"])
             ax.set_xlabel(data.get("xlabel", "X-axis"))
             ax.set_ylabel(data.get("ylabel", "Y-axis"))
             ax.set_title(data.get("title", "Bar Chart"))
-            
+
         elif chart_type == "line" and "x" in data and "y" in data:
             ax.plot(data["x"], data["y"], marker='o')
             ax.set_xlabel(data.get("xlabel", "X-axis"))
             ax.set_ylabel(data.get("ylabel", "Y-axis"))
             ax.set_title(data.get("title", "Line Chart"))
-            
+
         elif chart_type == "scatter" and "x" in data and "y" in data:
             ax.scatter(data["x"], data["y"])
             ax.set_xlabel(data.get("xlabel", "X-axis"))
             ax.set_ylabel(data.get("ylabel", "Y-axis"))
             ax.set_title(data.get("title", "Scatter Plot"))
-        
+
         plt.tight_layout()
-        
+
         # Convert to base64
         buffer = BytesIO()
         plt.savefig(buffer, format='png', bbox_inches='tight', dpi=150)
         buffer.seek(0)
         image_base64 = base64.b64encode(buffer.getvalue()).decode()
         plt.close()
-        
+
         return image_base64
     except Exception as e:
         print(f"Error creating visualization: {e}")
         return None
 
+
 def enhanced_response_parser(response_text: str, include_images: bool = True) -> EnhancedResponse:
     """Parse response text for code blocks, images, and visualizations"""
-    
+
     # Extract code blocks
     code_blocks = parse_code_blocks(response_text)
-    
+
     # Detect image requests
     image_requests = []
     if include_images:
         image_requests = detect_image_requests(response_text)
-    
+
     # Check for data visualization needs
     has_visualization = any([
         "chart" in response_text.lower(),
@@ -153,13 +167,14 @@ def enhanced_response_parser(response_text: str, include_images: bool = True) ->
         "plot" in response_text.lower(),
         "visualization" in response_text.lower()
     ])
-    
+
     return EnhancedResponse(
         text_content=response_text,
         code_blocks=code_blocks,
         image_requests=image_requests,
         has_visualization=has_visualization
     )
+
 
 def format_code_for_display(code_block: CodeBlock) -> str:
     """Format code block for better display in Streamlit"""
@@ -171,9 +186,10 @@ def format_code_for_display(code_block: CodeBlock) -> str:
 {code_block.explanation if code_block.explanation else ""}
 """
 
+
 def display_enhanced_response(response_text: str, include_images: bool = True, api_key: str = None, message_id: str = None):
     """Display enhanced response with code highlighting and image generation"""
-    
+
     # Add custom CSS for better code block styling
     # st.markdown(get_improved_css_styles(), unsafe_allow_html=True)
     st.markdown("""
@@ -300,30 +316,31 @@ def display_enhanced_response(response_text: str, include_images: bool = True, a
         }
     </script>
     """, unsafe_allow_html=True)
-    
+
     # Parse the response
     parsed_response = enhanced_response_parser(response_text, include_images)
-    
+
     # Generate a unique timestamp for this display
     timestamp = str(int(time.time() * 1000))
-    
+
     # Display main text content
     clean_text = response_text
     for code_block in parsed_response.code_blocks:
-        clean_text = clean_text.replace(f"```{code_block.language}\n{code_block.code}\n```", "")
-    
+        clean_text = clean_text.replace(
+            f"```{code_block.language}\n{code_block.code}\n```", "")
+
     st.markdown(clean_text)
-    
+
     # Display code blocks with syntax highlighting
     if parsed_response.code_blocks:
         st.markdown("---")
         st.markdown("### 📝 Code Examples:")
-        
+
         for i, code_block in enumerate(parsed_response.code_blocks):
             # Create unique keys using message_id, block index, and timestamp
             block_id = f"{message_id}_{i}_{timestamp}" if message_id else f"block_{i}_{timestamp}"
 
-             # Use the enhanced code display
+            # Use the enhanced code display
             # enhanced_html = create_enhanced_code_block(
             #     code=code_block.code,
             #     language=code_block.language,
@@ -333,23 +350,25 @@ def display_enhanced_response(response_text: str, include_images: bool = True, a
             with st.expander(f"{code_block.language.upper()} Code", expanded=True):
                 # Display the code with syntax highlighting
                 st.code(code_block.code, language=code_block.language)
-                
+
                 # Create columns for buttons
                 col1, col2 = st.columns([1, 2])
-                
+
                 # Add copy button with unique key
-                with col1:
-                    if st.button(f"📋 Copy Code", key=f"copy_{block_id}"):
-                        # Use JavaScript to copy the code
-                        js_code = f"""
-                        <script>
-                            copyToClipboard(`{code_block.code.replace('`', '\\`')}`);
-                        </script>
-                        """
-                        st.markdown(js_code, unsafe_allow_html=True)
-                
+                # with col1:
+                #     if st.button(f"📋 Copy Code", key=f"copy_{block_id}", help="Click to copy code to clipboard"):
+                #         # Use JavaScript to copy the code
+                #         escaped_code = code_block.code.replace("`", "\\`")
+                #         js_code = f"""
+                #         <script>
+                #             document.querySelector('[data-testid="stButton"]').classList.add('copy-button');
+                #             copyToClipboard(`{escaped_code}`);
+                #         </script>
+                #         """
+                #         st.markdown(js_code, unsafe_allow_html=True)
+
                 # Add download button
-                with col2:
+                with col1:
                     st.download_button(
                         label=f"💾 Download",
                         data=code_block.code,
@@ -357,22 +376,23 @@ def display_enhanced_response(response_text: str, include_images: bool = True, a
                         mime="text/plain",
                         key=f"download_{block_id}"
                     )
-                
+
                 if code_block.explanation:
                     st.markdown(f"**💡 Explanation:** {code_block.explanation}")
-    
+
     # Generate and display images
     if parsed_response.image_requests and include_images:
         st.markdown("---")
         st.markdown("### 🖼️ Generated Images:")
-        
+
         for i, img_request in enumerate(parsed_response.image_requests):
             # Create unique keys for image expanders using timestamp
             img_id = f"{message_id}_{i}_{timestamp}" if message_id else f"img_{i}_{timestamp}"
             with st.expander(f"Image: {img_request.prompt[:50]}...", expanded=True):
                 with st.spinner(f"Generating image..."):
-                    image_base64 = generate_image_with_api(img_request.prompt, api_key)
-                    
+                    image_base64 = generate_image_with_api(
+                        img_request.prompt, api_key)
+
                     if image_base64:
                         st.image(
                             f"data:image/png;base64,{image_base64}",
@@ -381,39 +401,98 @@ def display_enhanced_response(response_text: str, include_images: bool = True, a
                             key=f"image_{img_id}"
                         )
                     else:
-                        st.warning(f"Could not generate image for: {img_request.prompt}")
-    
+                        st.warning(
+                            f"Could not generate image for: {img_request.prompt}")
+
     # Handle data visualizations
     if parsed_response.has_visualization:
         st.markdown("---")
         st.markdown("### 📊 Data Visualization:")
-        st.info("Visualization capabilities detected. You can implement custom charts here.")
+        st.info(
+            "Visualization capabilities detected. You can implement custom charts here.")
 
 # Example usage function for your agent
+
+
 def process_agent_response(response_text: str, user_question: str) -> str:
     """Process agent response with enhanced parsing"""
-    
+
     # Check if response contains code or image requests
     if any(marker in response_text for marker in ["```", "generate image", "create image", "visualize"]):
         # Store the enhanced response in session state
         if "enhanced_responses" not in st.session_state:
             st.session_state.enhanced_responses = {}
-        
+
         # Generate a unique key for this response
         response_key = f"response_{len(st.session_state.enhanced_responses)}"
         st.session_state.enhanced_responses[response_key] = response_text
-        
+
         # Use enhanced display with unique message ID
-        display_enhanced_response(response_text, include_images=True, message_id=response_key)
-        
+        display_enhanced_response(
+            response_text, include_images=True, message_id=response_key)
+
         # Return a special marker that won't be displayed
         return f"__ENHANCED_RESPONSE__{response_key}"
     else:
         # Regular text response
         return response_text
 
+
 def get_enhanced_response(key: str) -> str:
     """Retrieve a stored enhanced response"""
     if "enhanced_responses" in st.session_state and key in st.session_state.enhanced_responses:
         return st.session_state.enhanced_responses[key]
     return "Response not found"
+
+
+def get_file_extension(language: str) -> str:
+    """Get the appropriate file extension for a given programming language"""
+    extensions = {
+        'python': 'py',
+        'javascript': 'js',
+        'typescript': 'ts',
+        'java': 'java',
+        'c': 'c',
+        'cpp': 'cpp',
+        'csharp': 'cs',
+        'go': 'go',
+        'rust': 'rs',
+        'ruby': 'rb',
+        'php': 'php',
+        'swift': 'swift',
+        'kotlin': 'kt',
+        'scala': 'scala',
+        'html': 'html',
+        'css': 'css',
+        'sql': 'sql',
+        'bash': 'sh',
+        'shell': 'sh',
+        'powershell': 'ps1',
+        'r': 'r',
+        'matlab': 'm',
+        'perl': 'pl',
+        'lua': 'lua',
+        'haskell': 'hs',
+        'ocaml': 'ml',
+        'fsharp': 'fs',
+        'dart': 'dart',
+        'elixir': 'ex',
+        'erlang': 'erl',
+        'clojure': 'clj',
+        'lisp': 'lisp',
+        'scheme': 'scm',
+        'prolog': 'pl',
+        'fortran': 'f90',
+        'cobol': 'cob',
+        'pascal': 'pas',
+        'ada': 'adb',
+        'assembly': 'asm',
+        'markdown': 'md',
+        'json': 'json',
+        'xml': 'xml',
+        'yaml': 'yml',
+        'toml': 'toml',
+        'ini': 'ini',
+        'text': 'txt'
+    }
+    return extensions.get(language.lower(), 'txt')
