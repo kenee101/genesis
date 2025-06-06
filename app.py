@@ -49,14 +49,23 @@ load_dotenv()
 st.set_page_config(page_title="Genesis", page_icon="🤖")
 
 # Load environment variables
+import streamlit as st
+import os
+
+import streamlit as st
+import os
+import time
+
+# Environment Variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 print("Welcome to Genesis")
-print(st.secrets)
+# print(st.secrets)
 
-hf_token = st.secrets.get("HF_TOKEN") or os.getenv("HF_TOKEN")
+hf_token = st.secrets['auth']["HF_TOKEN"] or os.getenv("HF_TOKEN")
 if not hf_token:
-    st.error("⚠️ HF_TOKEN is required but not found in secrets or environment variables")
+    st.error(
+        "⚠️ HF_TOKEN is required but not found in secrets or environment variables")
     st.stop()
 
 os.environ["HF_TOKEN"] = hf_token
@@ -274,9 +283,10 @@ else:
 
     # sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
-    api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+    api_key = st.secrets["auth"]["GROQ_API_KEY"] or os.getenv("GROQ_API_KEY")
     if not api_key:
-        st.error("⚠️ Api key is required but not found in secrets or environment variables")
+        st.error(
+            "⚠️ Api key is required but not found in secrets or environment variables")
         st.stop()
     # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
@@ -727,7 +737,6 @@ Rules:
 11. For webpage analysis, use Web Loader with valid URLs"""
             }
         )
-
 
         st.markdown("""
         <style>
