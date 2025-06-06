@@ -51,6 +51,7 @@ st.set_page_config(page_title="Genesis", page_icon="🤖")
 # Load environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+print("Hello")
 print("secrets", st.secrets)
 hf_token = st.secrets.get("HF_TOKEN") or os.getenv("HF_TOKEN")
 if not hf_token:
