@@ -36,6 +36,7 @@ app_venv/
 # Database
 *.db
 *.sqlite3
+*.sql
 
 # Logs
 *.log
