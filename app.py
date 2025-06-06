@@ -130,7 +130,7 @@ def redirect_to_login():
 
 # Simple authentication check
 if not st.session_state.authenticated:
-    st.header("This app is private.")
+    st.header("GENESIS")
     st.write("Please log in to access the application.")
 
     # Toggle between login and register
