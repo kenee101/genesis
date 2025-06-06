@@ -51,8 +51,7 @@ st.set_page_config(page_title="Genesis", page_icon="🤖")
 # Load environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-print("Hello")
-print("secrets", st.secrets)
+print(st.secrets)
 hf_token = st.secrets.get("HF_TOKEN") or os.getenv("HF_TOKEN")
 if not hf_token:
     st.error("⚠️ HF_TOKEN is required but not found in secrets or environment variables")
@@ -274,6 +273,9 @@ else:
     # sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
     api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
+    if not api_key:
+        st.error("⚠️ Api key is required but not found in secrets or environment variables")
+        st.stop()
     # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
     # LLM Selection
