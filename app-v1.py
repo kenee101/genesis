@@ -1,4 +1,3 @@
-from auth.supabase_auth import sign_up, sign_in, sign_out, get_current_user, reset_password
 from enhanced_parser import process_agent_response, display_enhanced_response, get_enhanced_response
 import streamlit as st
 import numpy as np
@@ -67,44 +66,33 @@ LOCALDB = "USE_LOCALDB"
 POSTGRESQL = "USE_POSTGRESQL"
 db_uri = ""
 
-postgresql_host = None
-postgresql_port = None
-postgresql_user = None
-postgresql_password = None
-postgresql_db = None
+options = ['Connect to SQLite 3 Database',
+           'Connect to PostgreSQL Database']
 
 # Initialize session state for authentication
 if 'authenticated' not in st.session_state:
     st.session_state.authenticated = False
 if 'show_register' not in st.session_state:
     st.session_state.show_register = False
-if 'email' not in st.session_state:
-    st.session_state.email = ""
+if 'username' not in st.session_state:
+    st.session_state.username = ""
 if 'password' not in st.session_state:
     st.session_state.password = ""
-if 'new_email' not in st.session_state:
-    st.session_state.new_email = ""
+if 'new_username' not in st.session_state:
+    st.session_state.new_username = ""
 if 'new_password' not in st.session_state:
     st.session_state.new_password = ""
 if 'confirm_password' not in st.session_state:
     st.session_state.confirm_password = ""
-
-# Initialize session state for database selection
-if 'db_uri' not in st.session_state:
-    st.session_state.db_uri = None
-
-# Initialize session state for database configuration
-if 'db_path' not in st.session_state:
-    st.session_state.db_path = None
 
 
 def redirect_to_login():
     """Programmatically redirect to login page"""
     st.session_state.authenticated = False
     st.session_state.show_register = False
-    st.session_state.email = ""
+    st.session_state.username = ""
     st.session_state.password = ""
-    st.session_state.new_email = ""
+    st.session_state.new_username = ""
     st.session_state.new_password = ""
     st.session_state.confirm_password = ""
     st.rerun()
@@ -112,6 +100,7 @@ def redirect_to_login():
 
 # Simple authentication check
 if not st.session_state.authenticated:
+    # st.title("Login Page")
     st.header("This app is private.")
     st.write("Please log in to access the application.")
 
@@ -124,10 +113,10 @@ if not st.session_state.authenticated:
         # Registration form
         st.subheader("Sign Up")
         with st.form("register_form"):
-            st.session_state.new_email = st.text_input(
-                "Email", value=st.session_state.new_email)
+            st.session_state.new_username = st.text_input(
+                "Choose Username", value=st.session_state.new_username)
             st.session_state.new_password = st.text_input(
-                "Password", type="password", value=st.session_state.new_password)
+                "Choose Password", type="password", value=st.session_state.new_password)
             st.session_state.confirm_password = st.text_input(
                 "Confirm Password", type="password", value=st.session_state.confirm_password)
             register_submitted = st.form_submit_button("Register")
@@ -138,119 +127,46 @@ if not st.session_state.authenticated:
                 elif len(st.session_state.new_password) < 6:
                     st.error("Password must be at least 6 characters long!")
                 else:
-                    success, message = sign_up(
-                        st.session_state.new_email, st.session_state.new_password)
-                    if success:
-                        st.success(message)
+                    if register_user(st.session_state.new_username, st.session_state.new_password):
+                        st.success("Registration successful! Please log in.")
                         st.session_state.show_register = False
                         # Clear registration fields
-                        st.session_state.new_email = ""
+                        st.session_state.new_username = ""
                         st.session_state.new_password = ""
                         st.session_state.confirm_password = ""
                         st.rerun()
                     else:
-                        st.error(message)
+                        st.error("Username already exists!")
     else:
         # Login form
         st.subheader("Login")
         with st.form("login_form"):
-            st.session_state.email = st.text_input(
-                "Email", value=st.session_state.email)
+            st.session_state.username = st.text_input(
+                "Username", value=st.session_state.username)
             st.session_state.password = st.text_input(
                 "Password", type="password", value=st.session_state.password)
             login_submitted = st.form_submit_button("Login")
 
             if login_submitted:
-                success, message = sign_in(
-                    st.session_state.email, st.session_state.password)
-                if success:
+                if verify_user(st.session_state.username, st.session_state.password):
                     st.session_state.authenticated = True
-                    st.session_state.email = st.session_state.email
+                    st.session_state.username = st.session_state.username
                     # Clear login fields
                     st.session_state.password = ""
-                    st.success(message)
+                    st.success("Login successful!")
                     st.rerun()
                 else:
-                    st.error(message)
-
-        # Add password reset option
-        if st.button("Forgot Password?"):
-            reset_email = st.text_input("Enter your email")
-            if st.button("Send Reset Link"):
-                success, message = reset_password(reset_email)
-                if success:
-                    st.success(message)
-                else:
-                    st.error(message)
+                    st.error("Invalid username or password")
 else:
     if st.sidebar.button("Log out"):
-        sign_out()
         redirect_to_login()
 
-    # Get current user info
-    user = get_current_user()
-    if user:
-        st.title(f"Welcome to GENESIS, {user.email}!")
-    else:
-        st.title("Welcome to GENESIS!")
+    st.title(f"Welcome to GENESIS, {st.session_state.username}!")
 
-    # Add Database Import section
-    st.sidebar.markdown("### Please select a database at a time")
-    sqlite_db = st.sidebar.checkbox("Import SQLite Database")
-    uploaded_db = None
-    if sqlite_db:
-        uploaded_db = st.file_uploader("Upload SQLite Database", type=[
-                                       'db', 'sqlite', 'sqlite3'])
+    selected_option = st.sidebar.radio("Select Database", options)
 
-        if uploaded_db is not None:
-            try:
-                # Create the database directory if it doesn't exist
-                home_dir = os.path.expanduser("~")
-                db_dir = os.path.join(home_dir, ".genesis", "databases")
-                os.makedirs(db_dir, exist_ok=True)
-
-                # Save the uploaded file
-                db_path = os.path.join(db_dir, "imported_users.db")
-                with open(db_path, "wb") as f:
-                    f.write(uploaded_db.getvalue())
-
-                # Verify the database is valid
-                conn = sqlite3.connect(f"file:{db_path}?mode=ro", uri=True)
-                cursor = conn.cursor()
-
-                # Get list of tables
-                cursor.execute(
-                    "SELECT name FROM sqlite_master WHERE type='table';")
-                tables = cursor.fetchall()
-
-                if tables:
-                    st.success(
-                        f"Successfully imported database with {len(tables)} tables!")
-                    st.write("Tables found:")
-                    for table in tables:
-                        st.write(f"- {table[0]}")
-
-                    # Update the database path in session state
-                    # if st.button("Use This Database"):
-                    st.session_state.db_path = db_path
-                    st.success(
-                        "Database path updated! The new database will be used.")
-                    st.rerun()
-                else:
-                    st.warning("The imported database contains no tables.")
-
-                conn.close()
-
-            except sqlite3.Error as e:
-                st.error(f"Error importing database: {str(e)}")
-            except Exception as e:
-                st.error(f"An unexpected error occurred: {str(e)}")
-
-    # selected_option = st.sidebar.radio("Select Database", options)
-    postgresql_db = st.sidebar.checkbox("Connect to PostgreSQL Database")
-
-    if postgresql_db:
-        st.session_state.db_uri = POSTGRESQL
+    if options.index(selected_option) == 1:
+        db_uri = POSTGRESQL
         postgresql_host = st.sidebar.text_input("PostgreSQL Host")
         postgresql_port = st.sidebar.text_input("PostgreSQL Port")
         postgresql_user = st.sidebar.text_input("PostgreSQL User")
@@ -258,10 +174,11 @@ else:
             "PostgreSQL Password", type="password")
         postgresql_db = st.sidebar.text_input("PostgreSQL Database")
         postgres_link = f"postgresql+psycopg2://{postgresql_user}:{postgresql_password}@{postgresql_host}:{postgresql_port}/{postgresql_db}"
-    elif sqlite_db:
-        st.session_state.db_uri = LOCALDB
     else:
-        st.session_state.db_uri = None
+        db_uri = LOCALDB
+
+    if not db_uri:
+        st.warning("Please select a database to proceed.")
 
     # sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
@@ -304,48 +221,36 @@ else:
     llm = initialize_llm(llm_provider, api_key)
 
     if llm:
-        # Initialize SQL chain as None by default
-        sql_chain = None
+        @st.cache_resource(ttl=10)
+        def configure_db():
+            if db_uri == LOCALDB:
+                # Use SQLite database
+                dbfilepath = (Path(__file__).parent /
+                              "databases/sqlite/users.db").absolute()
+                print(f"Database file path: {dbfilepath}")
+                def creator(): return sqlite3.connect(
+                    f"file:{dbfilepath}?mode=ro", uri=True)
+                return SQLDatabase(engine=create_engine('sqlite:///', creator=creator))
+            elif db_uri == POSTGRESQL:
+                # Use PostgreSQL database
+                if not (postgresql_host and postgresql_port and postgresql_user and postgresql_password and postgresql_db):
+                    st.warning(
+                        "Please enter your PostgreSQL credentials to proceed.")
+                    st.stop()
+                return SQLDatabase(engine=create_engine(postgres_link))
 
-        # Only configure database if user wants to use SQL features
-        if (uploaded_db is not None) or (postgresql_port is not None and postgresql_host is not None):
-            if st.sidebar.checkbox("Enable SQL Database Features"):
-                @st.cache_resource(ttl=10)
-                def configure_db():
-                    if st.session_state.db_uri == LOCALDB:
-                        # Use SQLite database with proper path handling
-                        dbfilepath = st.session_state.db_path or st.secrets.get(
-                            "sqlite_path")
-                        if not dbfilepath:
-                            st.error(
-                                "No database found. Please import a database.")
-                            return None
+        db = configure_db()
 
-                        print(f"Database file path: {dbfilepath}")
-                        def creator(): return sqlite3.connect(
-                            f"file:{dbfilepath}?mode=rw", uri=True)
-                        return SQLDatabase(engine=create_engine('sqlite:///', creator=creator))
-                    elif st.session_state.db_uri == POSTGRESQL:
-                        # Use PostgreSQL database
-                        if not (postgresql_host and postgresql_port and postgresql_user and postgresql_password and postgresql_db):
-                            st.warning(
-                                "Please enter your PostgreSQL credentials to proceed.")
-                            return None
-                        return SQLDatabase(engine=create_engine(postgres_link))
-                    return None
-
-                db = configure_db()
-                if db is not None:
-                    # Create a SQL database chain only if database is configured
-                    sql_chain = SQLDatabaseChain.from_llm(
-                        llm=llm,
-                        db=db,
-                        return_direct=True,
-                        return_intermediate_steps=True,
-                        use_query_checker=True,
-                        top_k=3,
-                        verbose=True
-                    )
+        # Create a SQL database chain
+        sql_chain = SQLDatabaseChain.from_llm(
+            llm=llm,
+            db=db,
+            return_direct=True,
+            return_intermediate_steps=True,
+            use_query_checker=True,
+            top_k=3,
+            verbose=True
+        )
 
         # Add chat session management
         if "chat_sessions" not in st.session_state:
@@ -612,6 +517,11 @@ else:
         # Initialize the tools with conversation awareness
         tools = [
             Tool(
+                name="SQL Agent",
+                func=execute_sql_query,
+                description="Use this tool ONLY if the user's question explicitly asks for database info like tables, student IDs, employees, or course records."
+            ),
+            Tool(
                 name="Wikipedia Search",
                 func=wiki_tool.run,
                 description="Search Wikipedia for relevant information."
@@ -633,16 +543,8 @@ else:
             )
         ]
 
-        # Add SQL Agent only if sql_chain is available
-        if sql_chain is not None:
-            tools.insert(0, Tool(
-                name="SQL Agent",
-                func=execute_sql_query,
-                description="Use this tool ONLY if the user's question explicitly asks for database info like tables, students, employees, or course records."
-            ))
-
-        # Add PDF Retriever tool if available
         if retriever_tool is not None:
+            # Add PDF Retriever tool
             tools.append(
                 Tool(
                     name="PDF Retriever",

@@ -11,6 +11,7 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import time
+from improved_code_display import get_improved_css_styles, create_enhanced_code_block, get_file_extension
 
 # Enhanced output parser for code and images
 
@@ -443,56 +444,3 @@ def get_enhanced_response(key: str) -> str:
     if "enhanced_responses" in st.session_state and key in st.session_state.enhanced_responses:
         return st.session_state.enhanced_responses[key]
     return "Response not found"
-
-
-def get_file_extension(language: str) -> str:
-    """Get the appropriate file extension for a given programming language"""
-    extensions = {
-        'python': 'py',
-        'javascript': 'js',
-        'typescript': 'ts',
-        'java': 'java',
-        'c': 'c',
-        'cpp': 'cpp',
-        'csharp': 'cs',
-        'go': 'go',
-        'rust': 'rs',
-        'ruby': 'rb',
-        'php': 'php',
-        'swift': 'swift',
-        'kotlin': 'kt',
-        'scala': 'scala',
-        'html': 'html',
-        'css': 'css',
-        'sql': 'sql',
-        'bash': 'sh',
-        'shell': 'sh',
-        'powershell': 'ps1',
-        'r': 'r',
-        'matlab': 'm',
-        'perl': 'pl',
-        'lua': 'lua',
-        'haskell': 'hs',
-        'ocaml': 'ml',
-        'fsharp': 'fs',
-        'dart': 'dart',
-        'elixir': 'ex',
-        'erlang': 'erl',
-        'clojure': 'clj',
-        'lisp': 'lisp',
-        'scheme': 'scm',
-        'prolog': 'pl',
-        'fortran': 'f90',
-        'cobol': 'cob',
-        'pascal': 'pas',
-        'ada': 'adb',
-        'assembly': 'asm',
-        'markdown': 'md',
-        'json': 'json',
-        'xml': 'xml',
-        'yaml': 'yml',
-        'toml': 'toml',
-        'ini': 'ini',
-        'text': 'txt'
-    }
-    return extensions.get(language.lower(), 'txt')

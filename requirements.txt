@@ -78,3 +78,5 @@ pyttsx3
 pytesseract
 seaborn
 matplotlib
+# supabase==2.3.0
+supabase

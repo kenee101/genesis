@@ -36,6 +36,7 @@ A powerful AI assistant built with Streamlit and LangChain.
 4. Click "New app"
 5. Select your repository, branch, and main file (app.py)
 6. Add your secrets in the "Secrets" section:
+
    ```toml
    # API Keys
    GROQ_API_KEY = "your-groq-api-key"
@@ -48,6 +49,7 @@ A powerful AI assistant built with Streamlit and LangChain.
    POSTGRES_PASSWORD = "your-postgres-password"
    POSTGRES_DB = "your-postgres-db"
    ```
+
 7. Click "Deploy"
 
 ## Environment Variables
@@ -77,35 +79,39 @@ Welcome to the future of AI. This project is an **end-to-end Generative AI stack
 ## 🚀 Features
 
 ### 🤖 LangChain Tools & Agents
+
 - Build contextual, chain-aware AI applications.
 - Utilize LangChain agents for tool-assisted reasoning.
 
 ### 🧑‍💻 Multi-Language Code Assistant
+
 - AI that reads, understands, and generates code in multiple languages.
 - Smart context switching for dev workflows.
 
 ### ✂️ Text Summarization
+
 - Clean, concise summaries powered by LLMs.
 - Ideal for document digestion and report generation.
 
-### 💬 Chat App with SQL + NoSQL 
+### 💬 Chat App with SQL
+
 - Conversational interface backed by:
-  - 📊 **PostgreSQL / MySQL** (Relational)
-  - 📦 **MongoDB** (Document-based)
+  - 📊 **PostgreSQL / MySQL**
+  - 📦 **SQLite 3** 
 
 ### 🧬 Hybrid Search RAG
+
 - Combine **semantic + keyword** retrieval with RAG (Retrieval Augmented Generation).
 - Use **vector databases** like:
   - `FAISS`
-  - `ChromaDB`
 
 ---
 
 ## 🛠️ Tech Stack
 
 - **LangChain** ⚙️
-- **PostgreSQL / MySQL / MongoDB** 🗃️
-- **FAISS / ChromaDB** 📡
+- **PostgreSQL / MySQL / SQLite** 🗃️
+- **FAISS ** 📡
 - **Streamlit**
 - **Python 3.12+**
 
@@ -117,3 +123,4 @@ Welcome to the future of AI. This project is an **end-to-end Generative AI stack
 git clone https://github.com/kenee101/genesis.git
 cd genesis
 pip install -r requirements.txt
+```
