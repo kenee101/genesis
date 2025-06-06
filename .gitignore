@@ -34,8 +34,8 @@ app_venv/
 .streamlit/secrets.toml
 
 # Database
-# *.db
-# *.sqlite3
+*.db
+*.sqlite3
 
 # Logs
 *.log

@@ -37,9 +37,9 @@ import json
 import re
 from datetime import datetime
 
-# from databases.postgres.postgres import store_prompt_data, store_employee_data, postgres_conn, close_postgres_connection
-from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query, run_agent_query
-from databases.sqlite.users import register_user, verify_user, get_all_users
+# from databases.postgres.postgres import store_prompt_dataq, postgres_conn, close_postgres_connection
+# from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query
+# from databases.sqlite.users import register_user, verify_user, get_all_users
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -323,7 +323,7 @@ else:
 
                         print(f"Database file path: {dbfilepath}")
                         def creator(): return sqlite3.connect(
-                            f"file:{dbfilepath}?mode=rw", uri=True)
+                            f"file:{dbfilepath}?mode=ro", uri=True)
                         return SQLDatabase(engine=create_engine('sqlite:///', creator=creator))
                     elif st.session_state.db_uri == POSTGRESQL:
                         # Use PostgreSQL database
@@ -410,7 +410,7 @@ else:
             top_k_results=1, doc_content_chars_max=250)
         wiki_tool = WikipediaQueryRun(api_wrapper=api_wrapper_wiki)
         arxiv_tool = ArxivQueryRun(api_wrapper=api_wrapper_arxiv)
-        search = DuckDuckGoSearchRun(
+        search_tool = DuckDuckGoSearchRun(
             name="DuckDuckGo Search", description="Search the web for relevant information.")
 
         # Add web loader tool
@@ -623,7 +623,7 @@ else:
             ),
             Tool(
                 name="SearchWeb",
-                func=search.run,
+                func=search_tool.run,
                 description="Retrieves information from the web."
             ),
             Tool(
@@ -638,7 +638,7 @@ else:
             tools.insert(0, Tool(
                 name="SQL Agent",
                 func=execute_sql_query,
-                description="Use this tool ONLY if the user's question explicitly asks for database info like tables, students, employees, or course records."
+                description="Use this tool ONLY if the user's question explicitly asks for database info like tables, students, or course records."
             ))
 
         # Add PDF Retriever tool if available
@@ -716,17 +716,7 @@ Rules:
             }
         )
 
-        # data = [("fola", 20, "Engineering", 50000),
-        #         ("elijah", 18, "Engineering", 60000),
-        #         ("Sophia", 20, "Engineering", 70000),
-        #         ("Michael", 22, "Engineering", 80000),
-        #         ("Sarah", 19, "Engineering", 90000),
-        #         ("David", 21, "Engineering", 100000),
-        #         ("Emily", 23, "Engineering", 110000)]
 
-        # store_employee_data(data)
-
-        # Add custom CSS for better chat styling
         st.markdown("""
         <style>
             .stChatMessage {
@@ -806,15 +796,15 @@ Rules:
         """, unsafe_allow_html=True)
 
         # Add typing indicator component
-        def show_typing_indicator():
-            with st.chat_message("assistant", avatar="🤖"):
-                st.markdown("""
-                <div class="typing-indicator">
-                    <div class="typing-dot"></div>
-                    <div class="typing-dot"></div>
-                    <div class="typing-dot"></div>
-                </div>
-                """, unsafe_allow_html=True)
+        # def show_typing_indicator():
+        #     with st.chat_message("assistant", avatar="🤖"):
+        #         st.markdown("""
+        #         <div class="typing-indicator">
+        #             <div class="typing-dot"></div>
+        #             <div class="typing-dot"></div>
+        #             <div class="typing-dot"></div>
+        #         </div>
+        #         """, unsafe_allow_html=True)
 
         # Display chat history
         if "chat_sessions" in st.session_state:
