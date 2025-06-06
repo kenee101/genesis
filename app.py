@@ -50,7 +50,13 @@ st.set_page_config(page_title="Genesis", page_icon="🤖")
 
 # Load environment variables
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
-os.environ["HF_TOKEN"] = st.secrets.get("HF_TOKEN", os.getenv("HF_TOKEN"))
+
+hf_token = st.secrets.get("HF_TOKEN") or os.getenv("HF_TOKEN")
+if not hf_token:
+    st.error("⚠️ HF_TOKEN is required but not found in secrets or environment variables")
+    st.stop()
+
+os.environ["HF_TOKEN"] = hf_token
 os.environ["USER_AGENT"] = "GenesisAGI/1.0 (+https://github.com/kenee101/genesis)"
 
 # Database configuration
