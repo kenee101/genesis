@@ -265,7 +265,7 @@ else:
 
     # sqlite_conn, cursor = connect_to_db('databases/sqlite/students.db')
 
-    api_key = os.getenv("GROQ_API_KEY")
+    api_key = st.secrets.get("GROQ_API_KEY", os.getenv("GROQ_API_KEY"))
     # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
     # LLM Selection
