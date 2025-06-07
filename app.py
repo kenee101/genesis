@@ -57,9 +57,10 @@ import os
 import time
 
 # Environment Variables
+print("Welcome to Genesis")
+os.environ["PYTORCH_DISABLE_META_TENSOR"] = "1" 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-print("Welcome to Genesis")
 # print(st.secrets)
 
 hf_token = st.secrets['auth']["HF_TOKEN"] or os.getenv("HF_TOKEN")
@@ -80,7 +81,20 @@ os.environ["USER_AGENT"] = "GenesisAGI/1.0 (+https://github.com/kenee101/genesis
 #     POSTGRES_DB = st.secrets.postgresql.database
 
 # Initialize embeddings
-embeddings = HuggingFaceEmbeddings(model_name="all-MiniLM-L6-v2")
+@st.cache_resource
+def load_embeddings():
+    return HuggingFaceEmbeddings(
+        model_name="all-MiniLM-L6-v2",
+        model_kwargs={'device': 'cpu'},
+        encode_kwargs={'device': 'cpu'}
+    )
+
+try:
+    embeddings = load_embeddings()
+except Exception as e:
+    st.error(f"Model loading failed: {str(e)}")
+    st.stop()
+
 LOCALDB = "USE_LOCALDB"
 POSTGRESQL = "USE_POSTGRESQL"
 db_uri = ""
