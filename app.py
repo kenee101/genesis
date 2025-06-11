@@ -58,7 +58,7 @@ import os
 import time
 
 # Environment Variables
-print("Welcome to Genesis")
+# print("Welcome to Genesis")
 os.environ["PYTORCH_DISABLE_META_TENSOR"] = "1" 
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
@@ -268,7 +268,7 @@ else:
                     st.session_state.db_path = db_path
                     st.success(
                         "Database path updated! The new database will be used.")
-                    st.rerun()
+                    # st.rerun()
                 else:
                     st.warning("The imported database contains no tables.")
 
