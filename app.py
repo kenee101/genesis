@@ -630,8 +630,8 @@ else:
             # Remove any markdown formatting and standardize case
             query = query.replace("```sql", "").replace("```", "").strip()
             # Convert name to lowercase for case-insensitive matching
-            if "WHERE name =" in query:
-                query = query.replace("WHERE name =", "WHERE LOWER(name) =")
+            # if "WHERE name =" in query:
+            #     query = query.replace("WHERE name =", "WHERE LOWER(name) =")
             return query
 
         def execute_sql_query(query):
@@ -707,7 +707,7 @@ else:
             agent=AgentType.ZERO_SHOT_REACT_DESCRIPTION,
             verbose=False,
             handle_parsing_errors=True,
-            max_iterations=3,
+            max_iterations=5,
             early_stopping_method="generate",
             agent_kwargs={
                 "prefix": """You are a helpful AI assistant. Use tools in this order:
