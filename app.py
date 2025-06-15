@@ -1,3 +1,4 @@
+import time
 from auth.supabase_auth import sign_up, sign_in, sign_out, get_current_user, reset_password
 from enhanced_parser import process_agent_response, display_enhanced_response, get_enhanced_response
 import streamlit as st
@@ -36,7 +37,8 @@ import os
 import json
 import re
 import torch
-from datetime import datetime
+from datetime import datetime, timedelta
+import secrets
 
 # from databases.postgres.postgres import store_prompt_dataq, postgres_conn, close_postgres_connection
 # from databases.sqlite.sqlite import close_sqlite_connection, connect_to_db, clean_sql_query
@@ -50,16 +52,11 @@ load_dotenv()
 st.set_page_config(page_title="Genesis", page_icon="🤖")
 
 # Load environment variables
-import streamlit as st
-import os
 
-import streamlit as st
-import os
-import time
 
 # Environment Variables
 # print("Welcome to Genesis")
-os.environ["PYTORCH_DISABLE_META_TENSOR"] = "1" 
+os.environ["PYTORCH_DISABLE_META_TENSOR"] = "1"
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 # print(st.secrets)
@@ -82,6 +79,8 @@ os.environ["USER_AGENT"] = "GenesisAGI/1.0 (+https://github.com/kenee101/genesis
 #     POSTGRES_DB = st.secrets.postgresql.database
 
 # Initialize embeddings
+
+
 @st.cache_resource
 def load_embeddings():
     return HuggingFaceEmbeddings(
@@ -89,6 +88,7 @@ def load_embeddings():
         model_kwargs={'device': 'cpu'},
         encode_kwargs={'device': 'cpu'}
     )
+
 
 try:
     embeddings = load_embeddings()
@@ -106,21 +106,97 @@ postgresql_user = None
 postgresql_password = None
 postgresql_db = None
 
-# Initialize session state for authentication
-if 'authenticated' not in st.session_state:
+# Add session persistence configuration
+SESSION_EXPIRY_DAYS = 7  # Number of days before session expires
+
+
+def init_session_state():
+    """Initialize session state variables."""
+    if 'authenticated' not in st.session_state:
+        st.session_state.authenticated = False
+    if 'show_register' not in st.session_state:
+        st.session_state.show_register = False
+    if 'email' not in st.session_state:
+        st.session_state.email = ""
+    if 'password' not in st.session_state:
+        st.session_state.password = ""
+    if 'new_email' not in st.session_state:
+        st.session_state.new_email = ""
+    if 'new_password' not in st.session_state:
+        st.session_state.new_password = ""
+    if 'confirm_password' not in st.session_state:
+        st.session_state.confirm_password = ""
+    if 'session_token' not in st.session_state:
+        st.session_state.session_token = None
+    if 'last_activity' not in st.session_state:
+        st.session_state.last_activity = datetime.now()
+    if 'persistent_session' not in st.session_state:
+        st.session_state.persistent_session = None
+
+
+def check_session_validity():
+    """Check if the current session is still valid."""
+    if not st.session_state.persistent_session:
+        return False
+
+    try:
+        session_data = json.loads(st.session_state.persistent_session)
+        last_activity = datetime.fromisoformat(session_data['last_activity'])
+
+        # Check if session has expired
+        if datetime.now() - last_activity > timedelta(days=SESSION_EXPIRY_DAYS):
+            return False
+
+        # Update last activity timestamp
+        session_data['last_activity'] = datetime.now().isoformat()
+        st.session_state.persistent_session = json.dumps(session_data)
+        return True
+    except:
+        return False
+
+
+def create_session(user_email: str):
+    """Create a new session for the user."""
+    session_token = secrets.token_urlsafe(32)
+    session_data = {
+        'token': session_token,
+        'email': user_email,
+        'last_activity': datetime.now().isoformat()
+    }
+
+    st.session_state.session_token = session_token
+    st.session_state.authenticated = True
+    st.session_state.email = user_email
+    st.session_state.last_activity = datetime.now()
+    st.session_state.persistent_session = json.dumps(session_data)
+
+
+def clear_session():
+    """Clear the current session."""
     st.session_state.authenticated = False
-if 'show_register' not in st.session_state:
-    st.session_state.show_register = False
-if 'email' not in st.session_state:
+    st.session_state.session_token = None
     st.session_state.email = ""
-if 'password' not in st.session_state:
     st.session_state.password = ""
-if 'new_email' not in st.session_state:
-    st.session_state.new_email = ""
-if 'new_password' not in st.session_state:
-    st.session_state.new_password = ""
-if 'confirm_password' not in st.session_state:
-    st.session_state.confirm_password = ""
+    st.session_state.last_activity = None
+    st.session_state.persistent_session = None
+
+
+# Initialize session state
+init_session_state()
+
+# Check for existing session
+if not st.session_state.authenticated and st.session_state.persistent_session:
+    try:
+        session_data = json.loads(st.session_state.persistent_session)
+        last_activity = datetime.fromisoformat(session_data['last_activity'])
+
+        if datetime.now() - last_activity <= timedelta(days=SESSION_EXPIRY_DAYS):
+            st.session_state.session_token = session_data['token']
+            st.session_state.authenticated = True
+            st.session_state.email = session_data['email']
+            st.session_state.last_activity = last_activity
+    except:
+        clear_session()
 
 # Initialize session state for database selection
 if 'db_uri' not in st.session_state:
@@ -144,14 +220,14 @@ def redirect_to_login():
 
 
 # Simple authentication check
-if not st.session_state.authenticated:
+if not st.session_state.authenticated or not check_session_validity():
     st.header("GENESIS")
     st.write("Please log in to access the application.")
 
     # Toggle between login and register
     if st.button("Register" if not st.session_state.show_register else "Login"):
         st.session_state.show_register = not st.session_state.show_register
-        # st.rerun()
+        st.rerun()
 
     if st.session_state.show_register:
         # Registration form
@@ -197,10 +273,7 @@ if not st.session_state.authenticated:
                 success, message = sign_in(
                     st.session_state.email, st.session_state.password)
                 if success:
-                    st.session_state.authenticated = True
-                    st.session_state.email = st.session_state.email
-                    # Clear login fields
-                    st.session_state.password = ""
+                    create_session(st.session_state.email)
                     st.success(message)
                     st.rerun()
                 else:
@@ -218,7 +291,8 @@ if not st.session_state.authenticated:
 else:
     if st.sidebar.button("Log out"):
         sign_out()
-        redirect_to_login()
+        clear_session()
+        st.rerun()
 
     # Get current user info
     user = get_current_user()
@@ -272,7 +346,7 @@ else:
                 else:
                     st.warning("The imported database contains no tables.")
 
-                conn.close()
+                # conn.close()
 
             except sqlite3.Error as e:
                 st.error(f"Error importing database: {str(e)}")
@@ -305,40 +379,49 @@ else:
         st.stop()
     # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
 
-    # LLM Selection
-    llm_provider = st.sidebar.selectbox(
-        "LLM Provider",
-        ["Groq"],
-        index=0
-    )
+    # # LLM Selection
+    # llm_provider = st.sidebar.selectbox(
+    #     "LLM Provider",
+    #     ["Groq"],
+    #     index=0
+    # )
 
     # Initialize LLM based on selection
-    @st.cache_resource(ttl=10)
-    def initialize_llm(provider: str, api_key: str = None, model_name: str = None):
-        if provider == "Groq":
-            if not api_key:
-                st.warning(
-                    "Please enter your Groq API key to use Groq models.")
-                return None
-            return ChatGroq(groq_api_key=api_key, model_name="Gemma2-9b-It")
-        # elif provider == "Ollama":
-        #     if not model_name:
-        #         st.warning("Please select an Ollama model.")
-        #         return None
-        #     return Ollama(model=model_name)
-        return None
+    def initialize_llm(api_key: str = None):
+        if not api_key:
+            st.warning(
+                "Please enter your Groq API key to use Groq models.")
+            return None
 
-    # Initialize Ollama model selection if Ollama is selected
-    # ollama_model = None
-    # if llm_provider == "Ollama":
-    #     ollama_model = st.sidebar.selectbox(
-    #         "Select Ollama Model",
-    #         ["deepseek-r1", "gemma3", "codellama"],
-    #         index=0
-    #     )
+        available_models = [
+            "Gemma2-9b-It",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "qwen-qwq-32b",
+            # "deepseek-r1-distill-llama-70b"
+        ]
+
+        selected_model = st.sidebar.selectbox(
+            "Select Groq Model",
+            available_models,
+            index=0
+        )
+
+        try:
+            return ChatGroq(
+                groq_api_key=api_key,
+                model_name=selected_model,
+                temperature=0.8,
+                max_retries=2,
+                streaming=True,
+                max_tokens=4096
+            )
+        except Exception as e:
+            st.error(f"Error initializing LLM: {str(e)}")
+            return None
 
     # Initialize the LLM
-    llm = initialize_llm(llm_provider, api_key)
+    llm = initialize_llm(api_key)
 
     if llm:
         # Initialize SQL chain as None by default
@@ -394,16 +477,43 @@ else:
             }
             st.session_state.session_id = 'default'
 
+        def generate_chat_name(messages: list) -> str:
+            """Generate a meaningful name for a chat session based on its content."""
+            if not messages:
+                return "New Chat"
+
+            # Get the first user message
+            first_user_message = next(
+                (msg.content for msg in messages if msg.type == "human"), None)
+            if not first_user_message:
+                return "New Chat"
+
+            # Clean and truncate the message
+            cleaned_message = first_user_message.strip()
+            if len(cleaned_message) > 30:
+                cleaned_message = cleaned_message[:27] + "..."
+
+            return cleaned_message
+
         # Add new chat session button
         if st.sidebar.button("➕ New Chat"):
             new_session_id = f"chat_{len(st.session_state.chat_sessions)}"
             st.session_state.chat_sessions[new_session_id] = {
-                "name": f"Chat {len(st.session_state.chat_sessions)}",
+                "name": "New Chat",
                 "history": ChatMessageHistory(),
                 "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             }
             st.session_state.session_id = new_session_id
             st.rerun()
+
+        # Update chat session names based on content
+        for session_id, session_data in st.session_state.chat_sessions.items():
+            if session_id != 'default':  # Don't rename the default chat
+                messages = session_data["history"].messages
+                if messages:
+                    new_name = generate_chat_name(messages)
+                    if new_name != session_data["name"]:
+                        session_data["name"] = new_name
 
         # Display chat sessions in sidebar
         st.sidebar.markdown("### Chat Sessions")
@@ -414,7 +524,7 @@ else:
             col1, col2 = st.sidebar.columns([3, 1])
             with col1:
                 if st.button(
-                    f"💬 {session_data['name']}",
+                    f"{session_data['name']}",
                     key=f"session_{session_id}",
                     use_container_width=True
                 ):
@@ -547,7 +657,7 @@ else:
 
         system_prompt = (
             """
-            You are Genesis, an intelligent AI assistant. When users address you with "hey genesis" or similar greetings, 
+            You are Genesis, an intelligent AI assistant. When users address you with "hey genesis" or similar greetings,
             respond in a friendly and helpful manner. You have access to the following tools:
 
             - SQL Agent: Use ONLY if the user's question is explicitly about structured database information such as student names, IDs, employees. Do NOT use this for general reasoning.
@@ -592,7 +702,7 @@ else:
             Use the context to support your answer and provide additional relevant information.
             \n\n
 
-            Context: {context} 
+            Context: {context}
             """
         )
 
@@ -783,7 +893,7 @@ Rules:
             }
             .assistant-message {
                 # background-color: #f5f5f5;
-                border-radius: 15px 15px 15px 0;
+                border-radius: 15px 15px 15px 15px;
                 padding: 10px;
                 margin: 10px;
                 margin-top: -5px;
@@ -831,17 +941,6 @@ Rules:
         </style>
         """, unsafe_allow_html=True)
 
-        # Add typing indicator component
-        # def show_typing_indicator():
-        #     with st.chat_message("assistant", avatar="🤖"):
-        #         st.markdown("""
-        #         <div class="typing-indicator">
-        #             <div class="typing-dot"></div>
-        #             <div class="typing-dot"></div>
-        #             <div class="typing-dot"></div>
-        #         </div>
-        #         """, unsafe_allow_html=True)
-
         # Display chat history
         if "chat_sessions" in st.session_state:
             current_session = st.session_state.session_id
@@ -873,6 +972,41 @@ Rules:
                                 </div>
                                 """, unsafe_allow_html=True)
 
+        def handle_llm_response(llm, user_question, current_history):
+            """Handle LLM response with retry logic and error handling."""
+            max_retries = 3
+            retry_delay = 2  # seconds
+
+            for attempt in range(max_retries):
+                try:
+                    with st.spinner('Thinking...'):
+                        st_cb = StreamlitCallbackHandler(
+                            st.empty(), expand_new_thoughts=False)
+                        response = llm.invoke(
+                            {
+                                "input": user_question,
+                                "chat_history": current_history.messages
+                            },
+                            callbacks=[st_cb],
+                            config={"configurable": {
+                                "session_id": st.session_state.session_id}}
+                        )
+                        return response
+
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        st.warning(
+                            f"Attempt {attempt + 1} failed. Retrying again...")
+                        time.sleep(retry_delay)
+                        # retry_delay *= 2  # Exponential backoff
+                    else:
+                        error_message = f"Failed after {max_retries} attempts. Error: {str(e)}"
+                        # st.error(error_message)
+                        return {
+                            # "output": "I apologize, but I encountered an error while processing your request. Please try again or rephrase your question."
+                            "output": error_message
+                        }
+
         if user_question:
             try:
                 # Create prompt embedding
@@ -892,68 +1026,56 @@ Rules:
                 # Add user message to history
                 update_chat_history("user", user_question)
 
-                # Process response
-                with st.spinner('Thinking...'):
-                    try:
-                        st_cb = StreamlitCallbackHandler(
-                            st.empty(), expand_new_thoughts=False)
-                        response = agent.invoke(
-                            {
-                                "input": user_question,
-                                "chat_history": current_history.messages
-                            },
-                            callbacks=[st_cb],
-                            config={"configurable": {
-                                "session_id": st.session_state.session_id}}
-                        )
+                # Process response with retry logic
+                response = handle_llm_response(
+                    agent, user_question, current_history)
 
-                        # Process the response
-                        response_output = response.get(
-                            "output", "I apologize, but I couldn't generate a proper response.")
+                # Process the response
+                response_output = response.get(
+                    "output", "I apologize, but I couldn't generate a proper response.")
 
-                        # Check if this is a SQL query response
-                        if isinstance(response_output, dict) and "result" in response_output:
-                            processed_response = response_output["result"]
-                        else:
-                            processed_response = process_agent_response(
-                                response_output, user_question)
+                # Check if this is a SQL query response
+                if isinstance(response_output, dict) and "result" in response_output:
+                    processed_response = response_output["result"]
+                else:
+                    processed_response = process_agent_response(
+                        response_output, user_question)
 
-                        # Display AI message on the right with timestamp
-                        with st.chat_message("assistant", avatar="🤖"):
-                            display_text = processed_response
-                            if "__ENHANCED_RESPONSE__" in processed_response:
-                                display_text = ""
+                # Display AI message
+                with st.chat_message("assistant", avatar="🤖"):
+                    display_text = processed_response
+                    if "__ENHANCED_RESPONSE__" in processed_response:
+                        display_text = ""
 
-                            st.markdown(f"""
-                            <div class="assistant-message">
-                                <div class="assistant-message-content">{display_text}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
+                    st.markdown(f"""
+                    <div class="assistant-message">
+                        <div class="assistant-message-content">{display_text}</div>
+                    </div>
+                    """, unsafe_allow_html=True)
 
-                        # Add the assistant's message to history
-                        if processed_response:
-                            update_chat_history("ai", processed_response)
-
-                    except Exception as e:
-                        error_message = f"An error occurred while processing your request: {str(e)}"
-
-                        with st.chat_message("assistant", avatar="🤖"):
-                            st.markdown(f"""
-                            <div class="assistant-message">
-                                <div class="assistant-message-content">{error_message}</div>
-                            </div>
-                            """, unsafe_allow_html=True)
-
-                        if st.button("🔄 Retry", key="retry_button"):
-                            st.rerun()
-
-                        update_chat_history("ai", error_message)
+                # Add the assistant's message to history
+                if processed_response:
+                    update_chat_history("ai", processed_response)
 
             except Exception as e:
-                st.error(f"An unexpected error occurred: {str(e)}")
-                if st.button("🔄 Refresh", key="refresh_button"):
+                error_message = f"An error occurred while processing your request: {str(e)}"
+                st.error(error_message)
+
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(f"""
+                    <div class="assistant-message">
+                        <div class="assistant-message-content">
+                            I apologize, but I encountered an error while processing your request. 
+                            Please try again or rephrase your question. If the problem persists, 
+                            you may want to try a different model.
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                if st.button("🔄 Retry", key="retry_button"):
                     st.rerun()
-                st.stop()
+
+                update_chat_history("ai", error_message)
 
     else:
         st.warning("Please enter your Groq API key to proceed.")
