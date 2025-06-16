@@ -256,6 +256,7 @@ if not st.session_state.authenticated or not check_session_validity():
                         st.session_state.new_email = ""
                         st.session_state.new_password = ""
                         st.session_state.confirm_password = ""
+                        time.sleep(5)
                         st.rerun()
                     else:
                         st.error(message)
@@ -378,13 +379,6 @@ else:
             "⚠️ Api key is required but not found in secrets or environment variables")
         st.stop()
     # api_key=st.sidebar.text_input("Enter your Groq API key", type="password", value=os.getenv("GROQ_API_KEY"))
-
-    # # LLM Selection
-    # llm_provider = st.sidebar.selectbox(
-    #     "LLM Provider",
-    #     ["Groq"],
-    #     index=0
-    # )
 
     # Initialize LLM based on selection
     def initialize_llm(api_key: str = None):
