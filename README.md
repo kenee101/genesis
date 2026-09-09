@@ -39,7 +39,6 @@ A powerful AI assistant built with Streamlit and LangChain.
 
    ```toml
    # API Keys
-   GROQ_API_KEY = "your-groq-api-key"
    HF_TOKEN = "your-huggingface-token"
 
    # Database Configuration
@@ -54,7 +53,6 @@ A powerful AI assistant built with Streamlit and LangChain.
 
 ## Environment Variables
 
-- `GROQ_API_KEY`: Your Groq API key
 - `HF_TOKEN`: Your HuggingFace token
 - `POSTGRES_HOST`: PostgreSQL host
 - `POSTGRES_PORT`: PostgreSQL port
